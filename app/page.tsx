@@ -1,36 +1,19 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { addMember } from "./actions-members";
+import MemberManager from "@/components/MemberManager";
 import Navbar from "@/components/Navbar";
+import type { Member } from "@/types/database";
 
-export default async function MembersPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  const query = (await searchParams).q || "";
-
-  let queryBuilder = supabaseAdmin.from("members").select("*").order("last_name");
-  if (query) {
-    queryBuilder = queryBuilder.or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%`);
-  }
-
-  const { data: members } = await queryBuilder;
+export default async function HomePage() {
+  const { data: members } = await supabaseAdmin.from("members").select("*").order("last_name", { ascending: true });
 
   return (
-    <main className="pb-20 p-4 max-w-md mx-auto">
-      <h1 className="text-xl font-bold mb-4">Members</h1>
+    <main className="min-h-screen bg-neutral-950 text-neutral-100 pb-24 p-4 max-w-md mx-auto">
+      <header className="py-3 mb-3 border-b border-neutral-900">
+        <h1 className="text-xl font-bold tracking-tight">Fighter Directory</h1>
+        <p className="text-xs text-neutral-500">Manage members, active passes & payments</p>
+      </header>
 
-      {/* Search Bar */}
-      <form className="mb-4">
-        <input name="q" defaultValue={query} placeholder="Search member..." className="w-full bg-neutral-900 border border-neutral-800 p-3 rounded-xl text-sm" />
-      </form>
-
-      {/* List */}
-      <div className="space-y-2">
-        {members?.map((m) => (
-          <div key={m.id} className="bg-neutral-900 p-4 rounded-xl flex justify-between items-center">
-            <span>
-              {m.last_name}, {m.first_name}
-            </span>
-          </div>
-        ))}
-      </div>
+      <MemberManager initialMembers={(members as Member[]) || []} />
 
       <Navbar />
     </main>
