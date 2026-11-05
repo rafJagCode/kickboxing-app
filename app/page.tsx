@@ -3,8 +3,6 @@ import { logoutAction } from "./actions";
 import { ShieldCheck, LogOut, CheckCircle2, AlertTriangle } from "lucide-react";
 import type { TrainingType } from "@/types/database";
 
-export const dynamic = "force-dynamic";
-
 export default async function HomePage() {
   let trainingTypes: TrainingType[] = [];
   let connectionError: string | null = null;
