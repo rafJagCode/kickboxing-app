@@ -3,8 +3,6 @@ import Navbar from "@/components/Navbar";
 import TrainingTypeManager from "./TrainingTypeManager";
 import type { TrainingType } from "@/types/database";
 
-export const instant = false;
-
 export default async function TrainingPage() {
   const { data } = await supabaseAdmin.from("training_types").select("*").order("name");
 

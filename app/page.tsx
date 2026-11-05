@@ -3,8 +3,6 @@ import MemberManager from "@/components/MemberManager";
 import Navbar from "@/components/Navbar";
 import type { Member } from "@/types/database";
 
-export const instant = false;
-
 export default async function HomePage() {
   const { data: members } = await supabaseAdmin.from("members").select("*").order("last_name", { ascending: true });
 
