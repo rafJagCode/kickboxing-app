@@ -1,20 +1,22 @@
-// app/training/page.tsx
 import { supabaseAdmin } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
+import TrainingTypeManager from "./TrainingTypeManager";
+import type { TrainingType } from "@/types/database";
+
+export const instant = false;
 
 export default async function TrainingPage() {
-  const { data: trainingTypes } = await supabaseAdmin.from("training_types").select("*");
+  const { data } = await supabaseAdmin.from("training_types").select("*").order("name");
 
   return (
-    <main className="pb-20 p-4 max-w-md mx-auto">
-      <h1 className="text-xl font-bold mb-4">Training Groups</h1>
-      <div className="space-y-2">
-        {trainingTypes?.map((t) => (
-          <div key={t.id} className="bg-neutral-900 p-4 rounded-xl font-medium">
-            {t.name}
-          </div>
-        ))}
-      </div>
+    <main className="min-h-screen bg-neutral-950 text-neutral-100 pb-24 p-4 max-w-md mx-auto">
+      <header className="py-3 mb-3 border-b border-neutral-900">
+        <h1 className="text-xl font-bold tracking-tight">Training Groups</h1>
+        <p className="text-xs text-neutral-500">Manage Saturday kickboxing groups and categories</p>
+      </header>
+
+      <TrainingTypeManager initialGroups={(data as TrainingType[]) || []} />
+
       <Navbar />
     </main>
   );
