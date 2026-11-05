@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "summarize": "bash ./summarize-tool/summarize.sh"
   },
   "dependencies": {
     "jose": "^6.2.15",
