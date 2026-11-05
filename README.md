@@ -1,3 +1,9 @@
+# 🥊 Kickboxing Pass & Attendance Manager
+
+A personal, mobile-optimized admin dashboard built for kickboxing coaches to manage class passes, track bank transfer payment receipts, automate pass extensions based on cancelled weekend sessions, and register fast on-the-mat attendance.
+
+**Stack:** Next.js (App Router) • TypeScript • Tailwind CSS • shadcn/ui • Supabase (Postgres & Storage) • Vercel
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
