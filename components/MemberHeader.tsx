@@ -1,22 +1,25 @@
 /*
- * Description: Interactive header card for member detail view with modal dialog to edit name details.
- * Config: Requires Member object; triggers updateMember server action with state feedback.
+ * Description: Profile header component with edit modal supporting first name, last name, and training group reassignment.
+ * Config: Accepts member details, trainingTypes collection, and currentTrainingTypeId.
  */
 "use client";
 
 import { useState, useTransition } from "react";
 import { Pencil, X, AlertCircle } from "lucide-react";
 import { updateMember } from "@/app/actions-members";
-import type { Member } from "@/types/database";
+import type { Member, TrainingType } from "@/types/database";
 
 interface MemberHeaderProps {
   member: Member;
+  trainingTypes: TrainingType[];
+  currentTrainingTypeId?: string;
 }
 
-export default function MemberHeader({ member }: MemberHeaderProps) {
+export default function MemberHeader({ member, trainingTypes, currentTrainingTypeId }: MemberHeaderProps) {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [firstName, setFirstName] = useState(member.first_name);
   const [lastName, setLastName] = useState(member.last_name);
+  const [trainingTypeId, setTrainingTypeId] = useState(currentTrainingTypeId || trainingTypes[0]?.id || "");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -27,6 +30,7 @@ export default function MemberHeader({ member }: MemberHeaderProps) {
     const formData = new FormData();
     formData.append("first_name", firstName);
     formData.append("last_name", lastName);
+    formData.append("training_type_id", trainingTypeId);
 
     startTransition(async () => {
       try {
@@ -59,10 +63,11 @@ export default function MemberHeader({ member }: MemberHeaderProps) {
           onClick={() => {
             setFirstName(member.first_name);
             setLastName(member.last_name);
+            setTrainingTypeId(currentTrainingTypeId || trainingTypes[0]?.id || "");
             setIsEditOpen(true);
           }}
           className="p-2 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer shrink-0"
-          title="Edit Name"
+          title="Edit Details"
         >
           <Pencil className="w-4 h-4" />
         </button>
@@ -72,7 +77,7 @@ export default function MemberHeader({ member }: MemberHeaderProps) {
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-              <h3 className="font-bold text-base text-neutral-100">Edit Member Name</h3>
+              <h3 className="font-bold text-base text-neutral-100">Edit Member Details</h3>
               <button type="button" onClick={() => setIsEditOpen(false)} className="text-neutral-400 hover:text-neutral-200">
                 <X className="w-5 h-5" />
               </button>
@@ -107,6 +112,21 @@ export default function MemberHeader({ member }: MemberHeaderProps) {
                   required
                   className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">Training Group</label>
+                <select
+                  value={trainingTypeId}
+                  onChange={(e) => setTrainingTypeId(e.target.value)}
+                  className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                >
+                  {trainingTypes.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
