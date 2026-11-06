@@ -1,37 +1,44 @@
+// Member detail page integrating PassManager and ReceiptManager. Provides the coach with the complete profile, full pass issuance and history, attendance log, and payment receipt verifications.
+
 import { supabaseAdmin } from "@/lib/supabase";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Calendar } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import PassManager from "@/components/PassManager";
 import ReceiptManager from "@/components/ReceiptManager";
-import type { Member, PaymentProof } from "@/types/database";
+import type { Member, Pass, Attendance, CalendarSession, TrainingType, PaymentProof } from "@/types/database";
 
 export default async function MemberDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  // 1. Fetch Member details
-  const { data: member, error: memberError } = await supabaseAdmin.from("members").select("*").eq("id", id).single();
+  const [{ data: member, error: memberError }, { data: proofs }, { data: passes }, { data: attendances }, { data: sessions }, { data: trainingTypes }] = await Promise.all([
+    supabaseAdmin.from("members").select("*").eq("id", id).single(),
+    supabaseAdmin.from("payment_proofs").select("*").eq("member_id", id).order("booking_date", { ascending: false }),
+    supabaseAdmin.from("passes").select("*").eq("member_id", id).order("created_at", { ascending: false }),
+    supabaseAdmin.from("attendances").select("*").order("date", { ascending: true }),
+    supabaseAdmin.from("calendar_sessions").select("*"),
+    supabaseAdmin.from("training_types").select("*").order("name"),
+  ]);
 
   if (memberError || !member) {
     notFound();
   }
 
   const typedMember = member as Member;
-
-  // 2. Fetch Payment Proofs (ordered descending by booking_date)
-  const { data: proofs } = await supabaseAdmin.from("payment_proofs").select("*").eq("member_id", id).order("booking_date", { ascending: false });
+  const typedPasses = (passes as Pass[]) || [];
+  const activePass = typedPasses.find((p) => p.is_active) || null;
+  const pastPasses = typedPasses.filter((p) => !p.is_active);
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100 pb-24 p-4 max-w-md mx-auto">
-      {/* Back button */}
       <div className="mb-4">
         <Link href="/" className="inline-flex items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200 transition-colors">
           <ArrowLeft className="w-3.5 h-3.5" />
-          Back to Members
+          Back to Directory
         </Link>
       </div>
 
-      {/* Member Header Card */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center gap-3.5 mb-5 shadow-sm">
         <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-base shrink-0">
           {typedMember.first_name[0]}
@@ -46,16 +53,15 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
       </div>
 
       <div className="space-y-6">
-        {/* Pass Section Placeholder (Wired in Phase 6) */}
-        <div className="bg-neutral-900/60 border border-neutral-800/80 rounded-2xl p-4 space-y-2">
-          <div className="flex items-center gap-2 text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-            <Calendar className="w-4 h-4 text-amber-500" />
-            <span>Active Pass & Attendance</span>
-          </div>
-          <p className="text-xs text-neutral-500">Pass issuance and attendance check-in circles will be wired in Phase 6.</p>
-        </div>
+        <PassManager
+          memberId={typedMember.id}
+          activePass={activePass}
+          pastPasses={pastPasses}
+          attendances={(attendances as Attendance[]) || []}
+          trainingTypes={(trainingTypes as TrainingType[]) || []}
+          sessions={(sessions as CalendarSession[]) || []}
+        />
 
-        {/* Payment Receipts Section */}
         <ReceiptManager memberId={typedMember.id} initialReceipts={(proofs as PaymentProof[]) || []} />
       </div>
 
