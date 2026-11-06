@@ -1,9 +1,7 @@
-// Member management server actions. Automatically initializes a default unpaid membership pass (total_entries = 0) upon fighter registration to enable immediate check-ins.
-
-// Functions:
-// - addMember: Inserts a member and provisions an initial zero-entry pass.
-// - deleteMember: Removes a member and cascades to related records.
-
+/*
+ * Description: Server action to update existing member details (first name, last name).
+ * Config: Revalidates root directory path and specific member detail route on completion.
+ */
 "use server";
 
 import { supabaseAdmin } from "@/lib/supabase";
@@ -44,6 +42,34 @@ export async function addMember(formData: FormData) {
   }
 
   revalidatePath("/");
+}
+
+export async function updateMember(memberId: string, formData: FormData) {
+  const firstName = formData.get("first_name")?.toString().trim();
+  const lastName = formData.get("last_name")?.toString().trim();
+
+  if (!memberId) {
+    throw new Error("Member ID is missing.");
+  }
+
+  if (!firstName || !lastName) {
+    throw new Error("Both First Name and Last Name are required.");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("members")
+    .update({
+      first_name: firstName,
+      last_name: lastName,
+    })
+    .eq("id", memberId);
+
+  if (error) {
+    throw new Error(`Failed to update member: ${error.message}`);
+  }
+
+  revalidatePath("/");
+  revalidatePath(`/members/${memberId}`);
 }
 
 export async function deleteMember(id: string) {
