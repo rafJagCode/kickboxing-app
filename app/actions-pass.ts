@@ -1,7 +1,3 @@
-/*
- * Description: Server actions for pass operations including backdated attendance recording for calendar sessions.
- * Config: Revalidates root directory and passes routes upon mutation.
- */
 "use server";
 
 import { supabaseAdmin } from "@/lib/supabase";
@@ -76,6 +72,39 @@ export async function issuePass(formData: FormData) {
   revalidatePath(`/members/${memberId}`);
   revalidatePath("/");
   revalidatePath("/passes");
+}
+
+export async function updatePass(formData: FormData) {
+  const passId = formData.get("pass_id") as string;
+  const memberId = formData.get("member_id") as string;
+  const trainingTypeId = formData.get("training_type_id") as string;
+  const startDate = formData.get("start_date") as string;
+  const totalEntries = parseInt((formData.get("total_entries") as string) || "4", 10);
+
+  if (!passId || !trainingTypeId || !startDate) {
+    throw new Error("Pass ID, training group, and start date are required.");
+  }
+
+  if (isNaN(totalEntries) || totalEntries < 0) {
+    throw new Error("Total entries must be a non-negative number.");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("passes")
+    .update({
+      training_type_id: trainingTypeId,
+      start_date: startDate,
+      total_entries: totalEntries,
+    })
+    .eq("id", passId);
+
+  if (error) {
+    throw new Error(`Failed to update pass: ${error.message}`);
+  }
+
+  revalidatePath("/");
+  revalidatePath("/passes");
+  revalidatePath(`/members/${memberId}`);
 }
 
 export async function recordAttendance(passId: string, memberId: string) {
