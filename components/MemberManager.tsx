@@ -1,11 +1,11 @@
 /*
- * Description: Member directory and check-in manager updated to include pencil action button and edit dialog directly on directory cards.
- * Config: Manages active edit state for rapid updates on mat without navigating away.
+ * Description: Member directory with collapsible group filter matching calendar behavior, and training group select inputs in Add and Edit modals.
+ * Config: State selectedGroupId defaults to 'ALL'; isFilterOpen defaults to false.
  */
 "use client";
 
 import { useState, useTransition } from "react";
-import { Search, UserPlus, X, ChevronRight, User, AlertCircle, Sparkles, AlertTriangle, Pencil, Trash2 } from "lucide-react";
+import { Search, UserPlus, X, ChevronRight, ChevronDown, ChevronUp, User, AlertCircle, Sparkles, AlertTriangle, Pencil, Trash2, Layers } from "lucide-react";
 import { addMember, updateMember, deleteMember } from "@/app/actions-members";
 import { recordAttendance, undoAttendance } from "@/app/actions-pass";
 import { calculatePassHealth } from "@/lib/pass-engine";
@@ -22,30 +22,59 @@ interface MemberManagerProps {
 
 export default function MemberManager({ initialMembers, passes, attendances, sessions, trainingTypes }: MemberManagerProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState("ALL");
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addFirstName, setAddFirstName] = useState("");
+  const [addLastName, setAddLastName] = useState("");
+  const [addGroupId, setAddGroupId] = useState(trainingTypes[0]?.id || "");
+
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
+  const [editGroupId, setEditGroupId] = useState("");
+
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  const getActivePassForMember = (memberId: string) => {
+    return passes.find((p) => p.member_id === memberId && p.is_active);
+  };
+
+  const getGroupName = (typeId?: string) => {
+    if (!typeId) return "Unassigned";
+    return trainingTypes.find((t) => t.id === typeId)?.name || "Unassigned";
+  };
 
   const filteredMembers = initialMembers.filter((m) => {
     const fullName = `${m.first_name} ${m.last_name}`.toLowerCase();
     const reversed = `${m.last_name} ${m.first_name}`.toLowerCase();
     const term = searchTerm.toLowerCase().trim();
-    return fullName.includes(term) || reversed.includes(term);
+    const matchesSearch = fullName.includes(term) || reversed.includes(term);
+
+    if (!matchesSearch) return false;
+
+    if (selectedGroupId === "ALL") return true;
+
+    const activePass = getActivePassForMember(m.id);
+    return activePass?.training_type_id === selectedGroupId;
   });
 
   const handleAddSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
-    const form = e.currentTarget;
-    const formData = new FormData(form);
+
+    const formData = new FormData();
+    formData.append("first_name", addFirstName);
+    formData.append("last_name", addLastName);
+    formData.append("training_type_id", addGroupId);
 
     startTransition(async () => {
       try {
         await addMember(formData);
-        form.reset();
+        setAddFirstName("");
+        setAddLastName("");
         setIsAddModalOpen(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to add member");
@@ -61,6 +90,7 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
     const formData = new FormData();
     formData.append("first_name", editFirstName);
     formData.append("last_name", editLastName);
+    formData.append("training_type_id", editGroupId);
 
     startTransition(async () => {
       try {
@@ -115,13 +145,71 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
         </div>
 
         <button
-          onClick={() => setIsAddModalOpen(true)}
+          onClick={() => {
+            setAddFirstName("");
+            setAddLastName("");
+            setAddGroupId(trainingTypes[0]?.id || "");
+            setIsAddModalOpen(true);
+          }}
           className="shrink-0 flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-semibold rounded-xl text-sm transition-colors cursor-pointer shadow-sm"
           title="Add Fighter"
         >
           <UserPlus className="w-4 h-4" />
           <span className="hidden sm:inline">Add</span>
         </button>
+      </div>
+
+      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden shadow-sm transition-all">
+        <button type="button" onClick={() => setIsFilterOpen(!isFilterOpen)} className="w-full p-3.5 flex items-center justify-between text-left hover:bg-neutral-850 transition-colors cursor-pointer">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-neutral-400" />
+            <span className="text-xs font-bold uppercase tracking-wider text-neutral-200">Filter by Group</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">{selectedGroupId === "ALL" ? "All Groups" : getGroupName(selectedGroupId)}</span>
+            {isFilterOpen ? <ChevronUp className="w-4 h-4 text-neutral-400" /> : <ChevronDown className="w-4 h-4 text-neutral-400" />}
+          </div>
+        </button>
+
+        {isFilterOpen && (
+          <div className="p-3.5 pt-0 border-t border-neutral-800/60 mt-1">
+            <div className="flex flex-col gap-1.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedGroupId("ALL");
+                  setIsFilterOpen(false);
+                }}
+                className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+                  selectedGroupId === "ALL" ? "bg-amber-500 text-neutral-950 shadow-sm" : "bg-neutral-950/80 border border-neutral-800 text-neutral-300 hover:bg-neutral-800"
+                }`}
+              >
+                <span>All Groups</span>
+                {selectedGroupId === "ALL" && <span className="text-[10px] font-bold uppercase tracking-wider bg-neutral-950/20 px-2 py-0.5 rounded-md">Active</span>}
+              </button>
+
+              {trainingTypes.map((t) => {
+                const isSelected = t.id === selectedGroupId;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedGroupId(t.id);
+                      setIsFilterOpen(false);
+                    }}
+                    className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+                      isSelected ? "bg-amber-500 text-neutral-950 shadow-sm" : "bg-neutral-950/80 border border-neutral-800 text-neutral-300 hover:bg-neutral-800"
+                    }`}
+                  >
+                    <span className="truncate">{t.name}</span>
+                    {isSelected && <span className="text-[10px] font-bold uppercase tracking-wider bg-neutral-950/20 px-2 py-0.5 rounded-md">Active</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -142,14 +230,14 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
           <div className="p-8 text-center bg-neutral-900/50 border border-neutral-900 rounded-2xl">
             <User className="w-8 h-8 text-neutral-600 mx-auto mb-2" />
             <p className="text-sm text-neutral-400 font-medium">No fighters found</p>
-            <p className="text-xs text-neutral-600 mt-1">Try another search or add a new fighter</p>
+            <p className="text-xs text-neutral-600 mt-1">Try another filter or add a new fighter</p>
           </div>
         ) : (
           filteredMembers.map((m) => {
-            const activePass = passes.find((p) => p.member_id === m.id && p.is_active);
+            const activePass = getActivePassForMember(m.id);
             const passAttendances = activePass ? attendances.filter((a) => a.pass_id === activePass.id) : [];
             const health = activePass ? calculatePassHealth(activePass, passAttendances, sessions) : null;
-            const groupName = activePass ? trainingTypes.find((t) => t.id === activePass.training_type_id)?.name : null;
+            const groupName = activePass ? getGroupName(activePass.training_type_id) : "Unassigned";
 
             return (
               <div key={m.id} className="bg-neutral-900/90 border border-neutral-800 rounded-2xl p-3.5 space-y-3 transition-colors">
@@ -163,7 +251,7 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                       <div className="text-sm font-bold text-neutral-100 truncate">
                         {m.last_name}, {m.first_name}
                       </div>
-                      <div className="text-[11px] text-neutral-400 truncate">{groupName ? groupName : "Unassigned"}</div>
+                      <div className="text-[11px] text-neutral-400 truncate">{groupName}</div>
                     </div>
                   </Link>
 
@@ -190,9 +278,10 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                         setEditingMember(m);
                         setEditFirstName(m.first_name);
                         setEditLastName(m.last_name);
+                        setEditGroupId(activePass?.training_type_id || trainingTypes[0]?.id || "");
                       }}
                       className="p-1.5 text-neutral-500 hover:text-neutral-200 rounded-lg hover:bg-neutral-800 transition-colors"
-                      title="Edit Name"
+                      title="Edit Details"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
@@ -309,7 +398,8 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                 <label className="block text-xs font-medium text-neutral-400 mb-1">First Name</label>
                 <input
                   type="text"
-                  name="first_name"
+                  value={addFirstName}
+                  onChange={(e) => setAddFirstName(e.target.value)}
                   required
                   autoFocus
                   placeholder="e.g. Leo"
@@ -321,18 +411,38 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                 <label className="block text-xs font-medium text-neutral-400 mb-1">Last Name</label>
                 <input
                   type="text"
-                  name="last_name"
+                  value={addLastName}
+                  onChange={(e) => setAddLastName(e.target.value)}
                   required
                   placeholder="e.g. Kowalski"
                   className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">Training Group</label>
+                <select
+                  value={addGroupId}
+                  onChange={(e) => setAddGroupId(e.target.value)}
+                  className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                >
+                  {trainingTypes.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setIsAddModalOpen(false)} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">
                   Cancel
                 </button>
-                <button type="submit" disabled={isPending} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl text-xs font-semibold disabled:opacity-50">
+                <button
+                  type="submit"
+                  disabled={isPending || !addFirstName.trim() || !addLastName.trim()}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl text-xs font-semibold disabled:opacity-50"
+                >
                   {isPending ? "Saving..." : "Save Fighter"}
                 </button>
               </div>
@@ -345,7 +455,7 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-              <h3 className="font-bold text-base text-neutral-100">Edit Fighter Name</h3>
+              <h3 className="font-bold text-base text-neutral-100">Edit Fighter Details</h3>
               <button type="button" onClick={() => setEditingMember(null)} className="text-neutral-400 hover:text-neutral-200">
                 <X className="w-5 h-5" />
               </button>
@@ -373,6 +483,21 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                   required
                   className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">Training Group</label>
+                <select
+                  value={editGroupId}
+                  onChange={(e) => setEditGroupId(e.target.value)}
+                  className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                >
+                  {trainingTypes.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
