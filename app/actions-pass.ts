@@ -1,10 +1,7 @@
-// Pass issuance and attendance management actions supporting automatic migration of overdraft entries from retired passes and backdating pass start dates.
-
-// Functions:
-// - issuePass: Creates a new pass, rolls over overdraft attendances from previous pass, and sets pass start date.
-// - recordAttendance: Inserts an attendance timestamp without daily duplicate entries.
-// - undoAttendance: Removes an attendance entry by ID.
-
+/*
+ * Description: Server actions for pass operations including backdated attendance recording for calendar sessions.
+ * Config: Revalidates root directory and passes routes upon mutation.
+ */
 "use server";
 
 import { supabaseAdmin } from "@/lib/supabase";
@@ -78,6 +75,7 @@ export async function issuePass(formData: FormData) {
 
   revalidatePath(`/members/${memberId}`);
   revalidatePath("/");
+  revalidatePath("/passes");
 }
 
 export async function recordAttendance(passId: string, memberId: string) {
@@ -101,6 +99,32 @@ export async function recordAttendance(passId: string, memberId: string) {
   }
 
   revalidatePath("/");
+  revalidatePath("/passes");
+  revalidatePath(`/members/${memberId}`);
+}
+
+export async function recordAttendanceForSession(passId: string, memberId: string, sessionDateStr: string) {
+  const { data: existingOnDate } = await supabaseAdmin.from("attendances").select("id, date").eq("pass_id", passId);
+
+  const alreadyMarked = existingOnDate?.some((att) => att.date.split("T")[0] === sessionDateStr);
+
+  if (alreadyMarked) {
+    throw new Error("Attendance is already recorded for this session date.");
+  }
+
+  const timestamp = `${sessionDateStr}T10:00:00.000Z`;
+
+  const { error } = await supabaseAdmin.from("attendances").insert({
+    pass_id: passId,
+    date: timestamp,
+  });
+
+  if (error) {
+    throw new Error(`Failed to record session attendance: ${error.message}`);
+  }
+
+  revalidatePath("/");
+  revalidatePath("/passes");
   revalidatePath(`/members/${memberId}`);
 }
 
@@ -112,5 +136,6 @@ export async function undoAttendance(attendanceId: string, memberId: string) {
   }
 
   revalidatePath("/");
+  revalidatePath("/passes");
   revalidatePath(`/members/${memberId}`);
 }
