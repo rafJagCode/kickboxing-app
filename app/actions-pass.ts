@@ -1,37 +1,79 @@
-// Server actions handling pass creation, attendance check-in, and check-in revocation. Enforces that only one active pass exists per member and prevents duplicate attendance entries on the same calendar day.
+// Pass issuance and attendance management actions supporting automatic migration of overdraft entries from retired passes and backdating pass start dates.
 
-// Actions:
-// - issuePass: Deactivates any existing active pass for the member and writes a new active pass.
-// - recordAttendance: Inserts an attendance entry with the current timestamp.
-// - undoAttendance: Deletes an attendance record by ID.
+// Functions:
+// - issuePass: Creates a new pass, rolls over overdraft attendances from previous pass, and sets pass start date.
+// - recordAttendance: Inserts an attendance timestamp without daily duplicate entries.
+// - undoAttendance: Removes an attendance entry by ID.
 
 "use server";
 
 import { supabaseAdmin } from "@/lib/supabase";
 import { revalidatePath } from "next/cache";
+import type { Attendance, Pass } from "@/types/database";
+
+function extractOverdraftAttendances(pass: Pass, attendances: Attendance[]): Attendance[] {
+  const sorted = [...attendances].sort((a, b) => a.date.localeCompare(b.date));
+  if (pass.total_entries === 0) {
+    return sorted;
+  }
+  return sorted.slice(pass.total_entries);
+}
 
 export async function issuePass(formData: FormData) {
   const memberId = formData.get("member_id") as string;
   const trainingTypeId = formData.get("training_type_id") as string;
-  const startDate = formData.get("start_date") as string;
+  let startDate = (formData.get("start_date") as string) || "";
   const totalEntries = parseInt((formData.get("total_entries") as string) || "4", 10);
 
-  if (!memberId || !trainingTypeId || !startDate) {
-    throw new Error("All pass fields are required.");
+  if (!memberId || !trainingTypeId) {
+    throw new Error("Member ID and Training Group are required.");
   }
 
-  await supabaseAdmin.from("passes").update({ is_active: false }).eq("member_id", memberId).eq("is_active", true);
+  const { data: previousPass } = await supabaseAdmin.from("passes").select("*").eq("member_id", memberId).eq("is_active", true).maybeSingle();
 
-  const { error } = await supabaseAdmin.from("passes").insert({
-    member_id: memberId,
-    training_type_id: trainingTypeId,
-    start_date: startDate,
-    total_entries: totalEntries,
-    is_active: true,
-  });
+  let overdraftAttendances: Attendance[] = [];
 
-  if (error) {
-    throw new Error(`Failed to issue pass: ${error.message}`);
+  if (previousPass) {
+    const { data: prevAttendances } = await supabaseAdmin.from("attendances").select("*").eq("pass_id", previousPass.id).order("date", { ascending: true });
+
+    if (prevAttendances && prevAttendances.length > 0) {
+      overdraftAttendances = extractOverdraftAttendances(previousPass as Pass, prevAttendances as Attendance[]);
+    }
+  }
+
+  if (overdraftAttendances.length > 0) {
+    startDate = overdraftAttendances[0].date.split("T")[0];
+  } else if (!startDate) {
+    startDate = new Date().toISOString().split("T")[0];
+  }
+
+  if (previousPass) {
+    await supabaseAdmin.from("passes").update({ is_active: false }).eq("id", previousPass.id);
+  }
+
+  const { data: newPass, error: passError } = await supabaseAdmin
+    .from("passes")
+    .insert({
+      member_id: memberId,
+      training_type_id: trainingTypeId,
+      start_date: startDate,
+      total_entries: totalEntries,
+      is_active: true,
+    })
+    .select()
+    .single();
+
+  if (passError || !newPass) {
+    throw new Error(`Failed to issue pass: ${passError?.message}`);
+  }
+
+  if (overdraftAttendances.length > 0) {
+    const overdraftIds = overdraftAttendances.map((a) => a.id);
+    const { error: transferError } = await supabaseAdmin.from("attendances").update({ pass_id: newPass.id }).in("id", overdraftIds);
+
+    if (transferError) {
+      throw new Error(`Failed to rollover overdraft attendances: ${transferError.message}`);
+    }
   }
 
   revalidatePath(`/members/${memberId}`);
