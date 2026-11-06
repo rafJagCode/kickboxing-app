@@ -14,7 +14,9 @@ interface CalendarManagerProps {
 }
 
 export default function CalendarManager({ trainingTypes, initialSessions, year, month }: CalendarManagerProps) {
-  const [selectedTypeId, setSelectedTypeId] = useState<string>(trainingTypes[0]?.id || "");
+  // 'ALL' is marked as the default tab
+  const [selectedTypeId, setSelectedTypeId] = useState<string>("ALL");
+  const [targetGroupForAdd, setTargetGroupForAdd] = useState<string>(trainingTypes[0]?.id || "");
   const [newDate, setNewDate] = useState<string>("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -30,14 +32,12 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
     window.location.href = `/calendar?year=${next.getUTCFullYear()}&month=${next.getUTCMonth()}`;
   };
 
-  // Sessions for currently selected training group, ordered chronologically
-  const groupSessions = initialSessions.filter((s) => s.training_type_id === selectedTypeId).sort((a, b) => a.date.localeCompare(b.date));
+  // Filter & sort sessions chronologically
+  const displayedSessions = initialSessions.filter((s) => selectedTypeId === "ALL" || s.training_type_id === selectedTypeId).sort((a, b) => a.date.localeCompare(b.date));
 
   // Monthly Report Calculations
   const completedSessions = initialSessions.filter((s) => s.status === "COMPLETED");
   const totalUnits = completedSessions.length;
-
-  const currentGroupName = trainingTypes.find((t) => t.id === selectedTypeId)?.name || "Training Group";
 
   const monthName = new Date(Date.UTC(year, month, 1)).toLocaleDateString("en-US", {
     month: "long",
@@ -45,11 +45,15 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
     timeZone: "UTC",
   });
 
-  const handleStatusChange = (date: string, newStatus: CalendarSessionStatus) => {
+  const getGroupName = (typeId: string) => {
+    return trainingTypes.find((t) => t.id === typeId)?.name || "General";
+  };
+
+  const handleStatusChange = (trainingTypeId: string, date: string, newStatus: CalendarSessionStatus) => {
     setError(null);
     startTransition(async () => {
       try {
-        await upsertSessionStatus(selectedTypeId, date, newStatus);
+        await upsertSessionStatus(trainingTypeId, date, newStatus);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Status update failed");
       }
@@ -59,10 +63,18 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
   const handleAddCustomDate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDate) return;
+
+    // Use selected group from tab, or the dropdown target if in 'ALL'
+    const targetId = selectedTypeId === "ALL" ? targetGroupForAdd : selectedTypeId;
+    if (!targetId) {
+      setError("Please select a training group.");
+      return;
+    }
+
     setError(null);
     startTransition(async () => {
       try {
-        await addSessionDate(selectedTypeId, newDate);
+        await addSessionDate(targetId, newDate);
         setNewDate("");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to add date");
@@ -71,18 +83,25 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
   };
 
   const handleAutoPopulateSaturdays = () => {
+    const targetId = selectedTypeId === "ALL" ? targetGroupForAdd : selectedTypeId;
+    if (!targetId) {
+      setError("Please select a training group.");
+      return;
+    }
+
     setError(null);
     startTransition(async () => {
       try {
-        await populateSaturdaysForMonth(selectedTypeId, year, month);
+        await populateSaturdaysForMonth(targetId, year, month);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Auto-population failed");
       }
     });
   };
 
-  const handleDeleteSession = (sessionId: string, date: string) => {
-    if (confirm(`Remove training session on ${formatSessionDate(date)}?`)) {
+  const handleDeleteSession = (sessionId: string, date: string, typeId: string) => {
+    const groupName = getGroupName(typeId);
+    if (confirm(`Remove ${groupName} session on ${formatSessionDate(date)}?`)) {
       setError(null);
       startTransition(async () => {
         try {
@@ -104,7 +123,7 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
 
         <div className="text-center">
           <div className="font-bold text-sm text-neutral-100">{monthName}</div>
-          <div className="text-[10px] text-neutral-500 uppercase tracking-wider">{groupSessions.length} Scheduled Sessions</div>
+          <div className="text-[10px] text-neutral-500 uppercase tracking-wider">{displayedSessions.length} Total Sessions</div>
         </div>
 
         <button onClick={handleNextMonth} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer" title="Next Month">
@@ -112,9 +131,9 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
         </button>
       </div>
 
-      {/* 2. Coach Monthly Summary Widget */}
-      <div className="bg-linear-to-br from-neutral-900 via-neutral-900/90 to-amber-950/20 border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-sm">
-        <div className="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+      {/* 2. Coach Monthly Summary Widget (Clean Stacked Rows) */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-sm">
+        <div className="flex items-center justify-between border-b border-neutral-800/80 pb-2.5">
           <div className="flex items-center gap-2">
             <Award className="w-4 h-4 text-amber-500" />
             <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-200">Coach Monthly Summary</h3>
@@ -122,26 +141,38 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
           <div className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">{totalUnits} Units Held</div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+        {/* Stacked rows for training groups */}
+        <div className="flex flex-col gap-2 pt-1">
           {trainingTypes.map((t) => {
             const count = completedSessions.filter((s) => s.training_type_id === t.id).length;
             return (
-              <div key={t.id} className="bg-neutral-950/60 border border-neutral-800/80 rounded-xl p-2.5 flex items-center justify-between">
-                <span className="text-[11px] text-neutral-400 truncate pr-2">{t.name}</span>
-                <span className="text-xs font-bold text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-900">{count} held</span>
+              <div key={t.id} className="bg-neutral-950/80 border border-neutral-800/80 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-neutral-300 truncate">{t.name}</span>
+                <span className="text-xs font-bold font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-900 px-2.5 py-0.5 rounded-lg shrink-0">{count} held</span>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* 3. Training Group Tabs */}
+      {/* 3. Training Group Tabs with "All Groups" as Default */}
       <div className="space-y-2">
         <div className="flex items-center gap-1.5 text-xs text-neutral-400 px-1 font-semibold">
           <Layers className="w-3.5 h-3.5 text-neutral-500" />
-          <span>Select Training Group</span>
+          <span>Filter by Group</span>
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+          {/* ALL GROUPS BUTTON (Default) */}
+          <button
+            onClick={() => setSelectedTypeId("ALL")}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+              selectedTypeId === "ALL" ? "bg-amber-500 text-neutral-950 shadow-sm" : "bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-neutral-200"
+            }`}
+          >
+            All Groups
+          </button>
+
+          {/* Individual Group Buttons */}
           {trainingTypes.map((t) => {
             const isSelected = t.id === selectedTypeId;
             return (
@@ -159,31 +190,51 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
         </div>
       </div>
 
-      {/* 4. Scheduling Controls (Add Any Day OR Auto-fill Saturdays) */}
+      {/* 4. Scheduling Controls */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-3">
         <div className="flex items-center justify-between text-xs font-semibold text-neutral-300">
-          <span>Schedule Sessions ({currentGroupName})</span>
+          <span>Schedule New Session</span>
+          {selectedTypeId !== "ALL" && <span className="text-[11px] text-amber-400">{getGroupName(selectedTypeId)}</span>}
         </div>
 
         {error && <p className="text-xs text-red-400 bg-red-950/40 p-2 rounded-lg border border-red-900/50">{error}</p>}
 
-        {/* Custom Date Form (Any Day of the Week) */}
-        <form onSubmit={handleAddCustomDate} className="flex gap-2">
-          <input
-            type="date"
-            value={newDate}
-            onChange={(e) => setNewDate(e.target.value)}
-            required
-            className="flex-1 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-          />
-          <button
-            type="submit"
-            disabled={isPending || !newDate}
-            className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-neutral-950 font-bold rounded-xl text-xs transition-colors cursor-pointer flex items-center gap-1 shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Date</span>
-          </button>
+        <form onSubmit={handleAddCustomDate} className="space-y-2">
+          {/* If 'ALL' is selected, coach chooses which group to add the session for */}
+          {selectedTypeId === "ALL" && (
+            <div>
+              <label className="block text-[11px] text-neutral-400 mb-1">Assign to Group:</label>
+              <select
+                value={targetGroupForAdd}
+                onChange={(e) => setTargetGroupForAdd(e.target.value)}
+                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              >
+                {trainingTypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <input
+              type="date"
+              value={newDate}
+              onChange={(e) => setNewDate(e.target.value)}
+              required
+              className="flex-1 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            />
+            <button
+              type="submit"
+              disabled={isPending || !newDate}
+              className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-neutral-950 font-bold rounded-xl text-xs transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Date</span>
+            </button>
+          </div>
         </form>
 
         {/* Quick Helper Button: Auto-populate Saturdays */}
@@ -194,28 +245,29 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
           className="w-full py-2 px-3 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
         >
           <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-          <span>Auto-fill all Saturdays of this month</span>
+          <span>Auto-fill Saturdays for {selectedTypeId === "ALL" ? getGroupName(targetGroupForAdd) : getGroupName(selectedTypeId)}</span>
         </button>
       </div>
 
-      {/* 5. Scheduled Sessions List */}
+      {/* 5. Sessions List (Sorted by date) */}
       <div className="space-y-3">
         <div className="flex items-center justify-between text-xs text-neutral-400 px-1">
           <span className="font-semibold text-neutral-300">
-            Sessions in {monthName} ({groupSessions.length})
+            {selectedTypeId === "ALL" ? "All Groups Schedule" : `${getGroupName(selectedTypeId)} Schedule`} ({displayedSessions.length})
           </span>
           <span className="text-[11px] text-neutral-500">Tap status to toggle</span>
         </div>
 
-        {groupSessions.length === 0 ? (
+        {displayedSessions.length === 0 ? (
           <div className="p-8 text-center bg-neutral-900/40 border border-neutral-900 rounded-2xl">
             <CalendarDays className="w-8 h-8 text-neutral-600 mx-auto mb-2" />
-            <p className="text-xs text-neutral-400 font-medium">No sessions scheduled for this month yet</p>
+            <p className="text-xs text-neutral-400 font-medium">No sessions scheduled for this month</p>
             <p className="text-[11px] text-neutral-600 mt-1">Add any training date above or click auto-fill Saturdays</p>
           </div>
         ) : (
-          groupSessions.map((session) => {
+          displayedSessions.map((session) => {
             const currentStatus = session.status;
+            const groupName = getGroupName(session.training_type_id);
 
             return (
               <div
@@ -224,7 +276,8 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
                   currentStatus === "COMPLETED" ? "bg-emerald-950/20 border-emerald-900/60" : currentStatus === "CANCELLED" ? "bg-red-950/20 border-red-900/60" : "bg-neutral-900 border-neutral-800"
                 }`}
               >
-                <div className="flex items-center justify-between gap-2 mb-2.5">
+                {/* Header: Date + Group Badge + Status Badge */}
+                <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2">
                     <CalendarDays className={`w-4 h-4 ${currentStatus === "COMPLETED" ? "text-emerald-400" : currentStatus === "CANCELLED" ? "text-red-400" : "text-amber-500"}`} />
                     <span className="text-sm font-bold text-neutral-100">{formatSessionDate(session.date)}</span>
@@ -243,10 +296,20 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
                       {currentStatus}
                     </span>
 
-                    <button type="button" onClick={() => handleDeleteSession(session.id, session.date)} className="p-1 text-neutral-500 hover:text-red-400 rounded transition-colors" title="Remove date">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteSession(session.id, session.date, session.training_type_id)}
+                      className="p-1 text-neutral-500 hover:text-red-400 rounded transition-colors"
+                      title="Remove date"
+                    >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
+                </div>
+
+                {/* Training Group Tag (especially helpful in All Groups view) */}
+                <div className="mb-2.5">
+                  <span className="text-[11px] font-medium text-amber-400/90 bg-amber-950/30 border border-amber-900/40 px-2 py-0.5 rounded-md">{groupName}</span>
                 </div>
 
                 {/* Status Toggles */}
@@ -254,7 +317,7 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
                   <button
                     type="button"
                     disabled={isPending}
-                    onClick={() => handleStatusChange(session.date, "PLANNED")}
+                    onClick={() => handleStatusChange(session.training_type_id, session.date, "PLANNED")}
                     className={`py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                       currentStatus === "PLANNED" ? "bg-amber-500 text-neutral-950" : "bg-neutral-950/70 border border-neutral-800 text-neutral-400 hover:text-neutral-200"
                     }`}
@@ -266,7 +329,7 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
                   <button
                     type="button"
                     disabled={isPending}
-                    onClick={() => handleStatusChange(session.date, "COMPLETED")}
+                    onClick={() => handleStatusChange(session.training_type_id, session.date, "COMPLETED")}
                     className={`py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                       currentStatus === "COMPLETED" ? "bg-emerald-500 text-neutral-950" : "bg-neutral-950/70 border border-neutral-800 text-neutral-400 hover:text-neutral-200"
                     }`}
@@ -278,7 +341,7 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
                   <button
                     type="button"
                     disabled={isPending}
-                    onClick={() => handleStatusChange(session.date, "CANCELLED")}
+                    onClick={() => handleStatusChange(session.training_type_id, session.date, "CANCELLED")}
                     className={`py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                       currentStatus === "CANCELLED" ? "bg-red-500 text-neutral-950" : "bg-neutral-950/70 border border-neutral-800 text-neutral-400 hover:text-neutral-200"
                     }`}
