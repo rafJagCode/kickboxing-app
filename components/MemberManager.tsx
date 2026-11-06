@@ -1,18 +1,36 @@
+// Primary coach search and rapid check-in view. Integrates instant 3-second attendance circles into member cards, recalculating dynamic pass expiration and extension warnings in real time.
+
+// Props:
+// - initialMembers: Member[]
+// - passes: Pass[]
+// - attendances: Attendance[]
+// - sessions: CalendarSession[]
+// - trainingTypes: TrainingType[]
+
 "use client";
 
 import { useState, useTransition } from "react";
-import { Search, UserPlus, Trash2, X, ChevronRight, User } from "lucide-react";
+import { Search, UserPlus, Trash2, X, ChevronRight, User, AlertCircle, Sparkles } from "lucide-react";
 import { addMember, deleteMember } from "@/app/actions-members";
+import { recordAttendance, undoAttendance } from "@/app/actions-pass";
+import { calculatePassHealth } from "@/lib/pass-engine";
 import Link from "next/link";
-import type { Member } from "@/types/database";
+import type { Member, Pass, Attendance, CalendarSession, TrainingType } from "@/types/database";
 
-export default function MemberManager({ initialMembers }: { initialMembers: Member[] }) {
+interface MemberManagerProps {
+  initialMembers: Member[];
+  passes: Pass[];
+  attendances: Attendance[];
+  sessions: CalendarSession[];
+  trainingTypes: TrainingType[];
+}
+
+export default function MemberManager({ initialMembers, passes, attendances, sessions, trainingTypes }: MemberManagerProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // Fast client-side filter: matches first or last name
   const filteredMembers = initialMembers.filter((m) => {
     const fullName = `${m.first_name} ${m.last_name}`.toLowerCase();
     const reversed = `${m.last_name} ${m.first_name}`.toLowerCase();
@@ -38,16 +56,30 @@ export default function MemberManager({ initialMembers }: { initialMembers: Memb
   };
 
   const handleDelete = (id: string, name: string) => {
-    if (confirm(`Are you sure you want to delete ${name}? All associated passes and receipts will be removed.`)) {
+    if (confirm(`Delete ${name}? All associated passes, receipts, and attendance records will be removed.`)) {
       startTransition(async () => {
         await deleteMember(id);
       });
     }
   };
 
+  const handleCircleTap = (pass: Pass, memberId: string, isUsed: boolean, isLastUsed: boolean, lastAttendanceId?: string) => {
+    setError(null);
+    startTransition(async () => {
+      try {
+        if (!isUsed) {
+          await recordAttendance(pass.id, memberId);
+        } else if (isLastUsed && lastAttendanceId) {
+          await undoAttendance(lastAttendanceId, memberId);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Check-in failed");
+      }
+    });
+  };
+
   return (
     <div className="space-y-4">
-      {/* Quick Action Bar: Search + Add Button */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
@@ -75,62 +107,129 @@ export default function MemberManager({ initialMembers }: { initialMembers: Memb
         </button>
       </div>
 
-      {/* Member Count Indicator */}
+      {error && (
+        <div className="flex items-center gap-2 p-3 text-xs text-red-400 bg-red-950/40 border border-red-900/50 rounded-xl">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
       <div className="flex items-center justify-between text-xs text-neutral-500 px-1">
         <span>
-          Showing {filteredMembers.length} of {initialMembers.length} members
+          Showing {filteredMembers.length} of {initialMembers.length} fighters
         </span>
       </div>
 
-      {/* Members List */}
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {filteredMembers.length === 0 ? (
           <div className="p-8 text-center bg-neutral-900/50 border border-neutral-900 rounded-2xl">
             <User className="w-8 h-8 text-neutral-600 mx-auto mb-2" />
-            <p className="text-sm text-neutral-400 font-medium">No members found</p>
-            <p className="text-xs text-neutral-600 mt-1">Try another search or add a new member</p>
+            <p className="text-sm text-neutral-400 font-medium">No fighters found</p>
+            <p className="text-xs text-neutral-600 mt-1">Try another search or add a new fighter</p>
           </div>
         ) : (
-          filteredMembers.map((m) => (
-            <div key={m.id} className="bg-neutral-900/80 border border-neutral-800/80 hover:border-neutral-700/80 rounded-xl p-3 flex items-center justify-between gap-3 transition-colors">
-              <Link href={`/members/${m.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="w-9 h-9 rounded-full bg-neutral-800 border border-neutral-700/60 flex items-center justify-center font-bold text-xs text-neutral-300 shrink-0">
-                  {m.first_name[0]}
-                  {m.last_name[0]}
-                </div>
-                <div className="truncate">
-                  <div className="text-sm font-semibold text-neutral-100 truncate">
-                    {m.last_name}, {m.first_name}
-                  </div>
-                  <div className="text-[11px] text-neutral-500">Joined {new Date(m.created_at).toLocaleDateString()}</div>
-                </div>
-              </Link>
+          filteredMembers.map((m) => {
+            const activePass = passes.find((p) => p.member_id === m.id && p.is_active);
+            const passAttendances = activePass ? attendances.filter((a) => a.pass_id === activePass.id) : [];
+            const health = activePass ? calculatePassHealth(activePass, passAttendances, sessions) : null;
+            const groupName = activePass ? trainingTypes.find((t) => t.id === activePass.training_type_id)?.name : null;
 
-              <div className="flex items-center gap-1 shrink-0">
-                <button onClick={() => handleDelete(m.id, `${m.first_name} ${m.last_name}`)} className="p-2 text-neutral-500 hover:text-red-400 rounded-lg hover:bg-neutral-800 transition-colors" title="Delete Member">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-                <Link href={`/members/${m.id}`} className="p-2 text-neutral-400 hover:text-neutral-100 rounded-lg hover:bg-neutral-800 transition-colors">
-                  <ChevronRight className="w-4 h-4" />
-                </Link>
+            return (
+              <div key={m.id} className="bg-neutral-900/90 border border-neutral-800 rounded-2xl p-3.5 space-y-3 transition-colors">
+                <div className="flex items-center justify-between gap-3">
+                  <Link href={`/members/${m.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-neutral-800 border border-neutral-700/60 flex items-center justify-center font-bold text-xs text-amber-400 shrink-0">
+                      {m.first_name[0]}
+                      {m.last_name[0]}
+                    </div>
+                    <div className="truncate">
+                      <div className="text-sm font-bold text-neutral-100 truncate">
+                        {m.last_name}, {m.first_name}
+                      </div>
+                      <div className="text-[11px] text-neutral-400 truncate">{groupName ? groupName : "No active pass"}</div>
+                    </div>
+                  </Link>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    {health && (
+                      <span
+                        className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                          health.status === "ACTIVE"
+                            ? "bg-emerald-950 text-emerald-400 border-emerald-800"
+                            : health.status === "COMPLETED"
+                              ? "bg-blue-950 text-blue-400 border-blue-800"
+                              : "bg-red-950 text-red-400 border-red-800"
+                        }`}
+                      >
+                        {health.status}
+                      </span>
+                    )}
+
+                    <Link href={`/members/${m.id}`} className="p-1.5 text-neutral-400 hover:text-neutral-100 rounded-lg hover:bg-neutral-800 transition-colors">
+                      <ChevronRight className="w-4 h-4" />
+                    </Link>
+                  </div>
+                </div>
+
+                {activePass && health ? (
+                  <div className="space-y-2 pt-1 border-t border-neutral-800/60">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-neutral-400">
+                        Expires: <strong className="text-neutral-200">{health.effectiveExpiryDate}</strong>
+                      </span>
+                      {health.isExtendedDueToCancellation && (
+                        <span className="flex items-center gap-1 text-[10px] text-amber-400 font-semibold">
+                          <Sparkles className="w-3 h-3" /> Extended
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2">
+                      {Array.from({ length: activePass.total_entries }).map((_, idx) => {
+                        const isUsed = idx < health.attendedCount;
+                        const isLastUsed = idx === health.attendedCount - 1;
+                        const lastAtt = passAttendances[passAttendances.length - 1];
+
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            disabled={isPending || (isUsed && !isLastUsed)}
+                            onClick={() => handleCircleTap(activePass, m.id, isUsed, isLastUsed, lastAtt?.id)}
+                            className={`flex-1 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-all cursor-pointer ${
+                              isUsed ? "bg-amber-500 text-neutral-950 shadow-xs" : "bg-neutral-950 border border-neutral-800 text-neutral-500 hover:border-amber-500/50"
+                            }`}
+                            title={isUsed ? (isLastUsed ? "Tap to undo this entry" : "Used") : "Tap to mark attendance"}
+                          >
+                            {isUsed ? "X" : "○"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pt-2 border-t border-neutral-800/60 flex items-center justify-between">
+                    <span className="text-[11px] text-neutral-500">Need pass renewal</span>
+                    <Link href={`/members/${m.id}`} className="text-xs font-semibold text-amber-400 hover:text-amber-300">
+                      Issue Pass →
+                    </Link>
+                  </div>
+                )}
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
-      {/* Add Member Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-              <h3 className="font-bold text-base text-neutral-100">Add New Member</h3>
+              <h3 className="font-bold text-base text-neutral-100">Add New Fighter</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-neutral-400 hover:text-neutral-200">
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            {error && <div className="p-3 text-xs text-red-400 bg-red-950/40 border border-red-900/50 rounded-lg">{error}</div>}
 
             <form onSubmit={handleAddSubmit} className="space-y-3.5">
               <div>
@@ -161,7 +260,7 @@ export default function MemberManager({ initialMembers }: { initialMembers: Memb
                   Cancel
                 </button>
                 <button type="submit" disabled={isPending} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl text-xs font-semibold disabled:opacity-50">
-                  {isPending ? "Saving..." : "Save Member"}
+                  {isPending ? "Saving..." : "Save Fighter"}
                 </button>
               </div>
             </form>
