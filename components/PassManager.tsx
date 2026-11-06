@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Ticket, Plus, Pencil, X, AlertCircle, Calendar, RotateCcw, Sparkles, History, AlertTriangle } from "lucide-react";
-import { issuePass, updatePass, recordAttendance, undoAttendance } from "@/app/actions-pass";
+import { Ticket, Plus, Pencil, Trash2, X, AlertCircle, Calendar, RotateCcw, Sparkles, History, AlertTriangle } from "lucide-react";
+import { issuePass, updatePass, deletePass, recordAttendance, undoAttendance } from "@/app/actions-pass";
 import { calculatePassHealth } from "@/lib/pass-engine";
 import type { Pass, Attendance, TrainingType, CalendarSession } from "@/types/database";
 
@@ -77,6 +77,20 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
     });
   };
 
+  const handleDeletePass = (passId: string) => {
+    if (confirm("Are you sure you want to permanently delete this pass and all its attendance records?")) {
+      setError(null);
+      startTransition(async () => {
+        try {
+          await deletePass(passId, memberId);
+          setIsEditOpen(false);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to delete pass");
+        }
+      });
+    }
+  };
+
   const handleQuickCheckIn = () => {
     if (!activePass) return;
     setError(null);
@@ -111,20 +125,31 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
         </div>
         <div className="flex items-center gap-1.5">
           {activePass && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditTrainingTypeId(activePass.training_type_id);
-                setEditStartDate(activePass.start_date);
-                setEditTotalEntries(activePass.total_entries);
-                setIsEditOpen(true);
-              }}
-              className="text-xs font-semibold px-2 py-1.5 bg-neutral-850 hover:bg-neutral-800 text-neutral-300 rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-neutral-800"
-              title="Edit Pass Settings"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              <span>Edit</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditTrainingTypeId(activePass.training_type_id);
+                  setEditStartDate(activePass.start_date);
+                  setEditTotalEntries(activePass.total_entries);
+                  setIsEditOpen(true);
+                }}
+                className="text-xs font-semibold px-2 py-1.5 bg-neutral-850 hover:bg-neutral-800 text-neutral-300 rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-neutral-800"
+                title="Edit Pass Settings"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Edit</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleDeletePass(activePass.id)}
+                className="text-xs font-semibold p-1.5 bg-neutral-850 hover:bg-red-950/60 text-neutral-400 hover:text-red-400 rounded-lg transition-colors flex items-center cursor-pointer border border-neutral-800 hover:border-red-900/60"
+                title="Delete Pass"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
           )}
 
           <button
@@ -214,7 +239,7 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
           <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
             <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-300">Edit Pass Parameters</h3>
             <button type="button" onClick={() => setIsEditOpen(false)} className="text-neutral-400 hover:text-neutral-200">
-              <X className="w-4 h-4" />
+              <X className="w-5 h-5" />
             </button>
           </div>
 
@@ -258,13 +283,28 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={() => setIsEditOpen(false)} className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-xs">
-              Cancel
+          <div className="flex justify-between items-center pt-1">
+            <button
+              type="button"
+              onClick={() => handleDeletePass(activePass.id)}
+              className="px-3 py-1.5 bg-red-950/40 hover:bg-red-900/40 text-red-400 border border-red-900/60 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Pass</span>
             </button>
-            <button type="submit" disabled={isPending} className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-lg text-xs disabled:opacity-50">
-              {isPending ? "Saving..." : "Update Pass"}
-            </button>
+
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setIsEditOpen(false)} className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-xs">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isPending || !editTrainingTypeId || !editStartDate}
+                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-lg text-xs disabled:opacity-50"
+              >
+                {isPending ? "Saving..." : "Update Pass"}
+              </button>
+            </div>
           </div>
         </form>
       )}
@@ -418,7 +458,12 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
                       Started {p.start_date} • {p.total_entries} entries
                     </div>
                   </div>
-                  <span className="text-[10px] font-mono text-neutral-500 uppercase bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">Expired/Replaced</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono text-neutral-500 uppercase bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">Expired/Replaced</span>
+                    <button type="button" onClick={() => handleDeletePass(p.id)} className="p-1 text-neutral-500 hover:text-red-400 rounded hover:bg-neutral-800 transition-colors" title="Delete archived pass">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               );
             })}
