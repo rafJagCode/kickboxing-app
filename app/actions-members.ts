@@ -1,6 +1,6 @@
 /*
- * Description: Server action to update existing member details (first name, last name).
- * Config: Revalidates root directory path and specific member detail route on completion.
+ * Description: Server actions for creating and updating members with explicit training group assignment and active pass group synchronization.
+ * Config: Updates passes table to sync group changes across active memberships.
  */
 "use server";
 
@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache";
 export async function addMember(formData: FormData) {
   const firstName = formData.get("first_name")?.toString().trim();
   const lastName = formData.get("last_name")?.toString().trim();
+  const trainingTypeId = formData.get("training_type_id")?.toString().trim();
 
   if (!firstName || !lastName) {
     throw new Error("Both First Name and Last Name are required.");
@@ -28,13 +29,19 @@ export async function addMember(formData: FormData) {
     throw new Error(`Failed to add member: ${memberError?.message}`);
   }
 
-  const { data: defaultGroup } = await supabaseAdmin.from("training_types").select("id").order("name", { ascending: true }).limit(1).maybeSingle();
+  let targetGroupId = trainingTypeId;
 
-  if (defaultGroup) {
+  if (!targetGroupId) {
+    const { data: defaultGroup } = await supabaseAdmin.from("training_types").select("id").order("name", { ascending: true }).limit(1).maybeSingle();
+
+    targetGroupId = defaultGroup?.id;
+  }
+
+  if (targetGroupId) {
     const todayISO = new Date().toISOString().split("T")[0];
     await supabaseAdmin.from("passes").insert({
       member_id: newMember.id,
-      training_type_id: defaultGroup.id,
+      training_type_id: targetGroupId,
       start_date: todayISO,
       total_entries: 0,
       is_active: true,
@@ -47,6 +54,7 @@ export async function addMember(formData: FormData) {
 export async function updateMember(memberId: string, formData: FormData) {
   const firstName = formData.get("first_name")?.toString().trim();
   const lastName = formData.get("last_name")?.toString().trim();
+  const trainingTypeId = formData.get("training_type_id")?.toString().trim();
 
   if (!memberId) {
     throw new Error("Member ID is missing.");
@@ -56,7 +64,7 @@ export async function updateMember(memberId: string, formData: FormData) {
     throw new Error("Both First Name and Last Name are required.");
   }
 
-  const { error } = await supabaseAdmin
+  const { error: memberUpdateError } = await supabaseAdmin
     .from("members")
     .update({
       first_name: firstName,
@@ -64,8 +72,25 @@ export async function updateMember(memberId: string, formData: FormData) {
     })
     .eq("id", memberId);
 
-  if (error) {
-    throw new Error(`Failed to update member: ${error.message}`);
+  if (memberUpdateError) {
+    throw new Error(`Failed to update member: ${memberUpdateError.message}`);
+  }
+
+  if (trainingTypeId) {
+    const { data: activePass } = await supabaseAdmin.from("passes").select("id").eq("member_id", memberId).eq("is_active", true).maybeSingle();
+
+    if (activePass) {
+      await supabaseAdmin.from("passes").update({ training_type_id: trainingTypeId }).eq("id", activePass.id);
+    } else {
+      const todayISO = new Date().toISOString().split("T")[0];
+      await supabaseAdmin.from("passes").insert({
+        member_id: memberId,
+        training_type_id: trainingTypeId,
+        start_date: todayISO,
+        total_entries: 0,
+        is_active: true,
+      });
+    }
   }
 
   revalidatePath("/");
