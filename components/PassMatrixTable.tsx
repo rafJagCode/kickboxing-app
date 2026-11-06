@@ -1,12 +1,8 @@
-/*
- * Description: Pass matrix table updated with status filters ordered as All, Newest, Expired, and Unpaid. Newest filter isolates the single most recent pass per member.
- * Config: Default statusFilter is 'ALL'; filters ordered as All, Newest, Expired, Unpaid.
- */
 "use client";
 
 import { useState, useTransition } from "react";
-import { Layers, ChevronDown, ChevronUp, Calendar, AlertCircle } from "lucide-react";
-import { recordAttendanceForSession, undoAttendance } from "@/app/actions-pass";
+import { Layers, ChevronDown, ChevronUp, Calendar, AlertCircle, Pencil, X } from "lucide-react";
+import { recordAttendanceForSession, undoAttendance, updatePass } from "@/app/actions-pass";
 import { calculatePassHealth } from "@/lib/pass-engine";
 import { formatSessionDate } from "@/lib/date-utils";
 import Link from "next/link";
@@ -28,6 +24,11 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [fromDate, setFromDate] = useState(initialFromDate);
   const [toDate, setToDate] = useState(initialToDate);
+
+  const [editingPass, setEditingPass] = useState<Pass | null>(null);
+  const [editTrainingTypeId, setEditTrainingTypeId] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editTotalEntries, setEditTotalEntries] = useState(4);
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +87,35 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Action failed");
+      }
+    });
+  };
+
+  const openEditModal = (pass: Pass) => {
+    setEditingPass(pass);
+    setEditTrainingTypeId(pass.training_type_id);
+    setEditStartDate(pass.start_date);
+    setEditTotalEntries(pass.total_entries);
+  };
+
+  const handleEditPassSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPass) return;
+    setError(null);
+
+    const formData = new FormData();
+    formData.append("pass_id", editingPass.id);
+    formData.append("member_id", editingPass.member_id);
+    formData.append("training_type_id", editTrainingTypeId);
+    formData.append("start_date", editStartDate);
+    formData.append("total_entries", String(editTotalEntries));
+
+    startTransition(async () => {
+      try {
+        await updatePass(formData);
+        setEditingPass(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to update pass");
       }
     });
   };
@@ -205,7 +235,7 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
             <thead>
               <tr className="border-b border-neutral-800 bg-neutral-950/80">
                 <th className="sticky left-0 z-20 bg-neutral-950 px-3.5 py-3 font-semibold text-neutral-300 min-w-44 border-r border-neutral-800">Fighter & Pass</th>
-                <th className="px-3 py-3 font-semibold text-neutral-400 min-w-28 text-center border-r border-neutral-800">Entries / Valid</th>
+                <th className="px-3 py-3 font-semibold text-neutral-400 min-w-32 text-center border-r border-neutral-800">Entries / Valid</th>
                 {visibleSessions.map((session) => (
                   <th
                     key={session.id}
@@ -246,15 +276,27 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
                   return (
                     <tr key={pass.id} className="hover:bg-neutral-850/50 transition-colors">
                       <td className="sticky left-0 z-10 bg-neutral-900 px-3.5 py-2.5 border-r border-neutral-800">
-                        <Link href={`/members/${pass.member_id}`} className="font-bold text-neutral-100 hover:text-amber-400 block truncate">
-                          {memberName}
-                        </Link>
+                        <div className="flex items-center justify-between gap-2">
+                          <Link href={`/members/${pass.member_id}`} className="font-bold text-neutral-100 hover:text-amber-400 block truncate">
+                            {memberName}
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(pass)}
+                            className="p-1 text-neutral-500 hover:text-neutral-200 rounded hover:bg-neutral-800 transition-colors cursor-pointer shrink-0"
+                            title="Edit pass details"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        </div>
                         <div className="text-[10px] text-neutral-400 truncate mt-0.5">{groupName}</div>
                       </td>
 
                       <td className="px-3 py-2.5 text-center border-r border-neutral-800 font-mono">
-                        <div className="font-bold text-neutral-200">
-                          {health.attendedCount} / {pass.total_entries}
+                        <div className="flex items-center justify-center gap-1 font-bold text-neutral-200">
+                          <span>
+                            {health.attendedCount} / {pass.total_entries}
+                          </span>
                         </div>
                         <div className="text-[9px] text-neutral-500 mt-0.5">{pass.total_entries === 0 ? "Unpaid" : health.effectiveExpiryDate}</div>
                       </td>
@@ -305,6 +347,78 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
           </table>
         </div>
       </div>
+
+      {editingPass && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+              <div>
+                <h3 className="font-bold text-base text-neutral-100">Edit Pass</h3>
+                <p className="text-xs text-neutral-400 mt-0.5">{getMemberName(editingPass.member_id)}</p>
+              </div>
+              <button type="button" onClick={() => setEditingPass(null)} className="text-neutral-400 hover:text-neutral-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditPassSubmit} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">Training Group</label>
+                <select
+                  value={editTrainingTypeId}
+                  onChange={(e) => setEditTrainingTypeId(e.target.value)}
+                  className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                >
+                  {trainingTypes.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-neutral-400 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    value={editStartDate}
+                    onChange={(e) => setEditStartDate(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-neutral-400 mb-1">Total Entries</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="50"
+                    value={editTotalEntries}
+                    onChange={(e) => setEditTotalEntries(parseInt(e.target.value, 10))}
+                    required
+                    className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setEditingPass(null)} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending || !editTrainingTypeId || !editStartDate}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl text-xs font-semibold disabled:opacity-50"
+                >
+                  {isPending ? "Saving..." : "Update Pass"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
