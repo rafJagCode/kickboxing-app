@@ -1,4 +1,4 @@
-// Primary coach search and rapid check-in view. Integrates instant 3-second attendance circles into member cards, recalculating dynamic pass expiration and extension warnings in real time.
+// Directory search and 3-second mat check-in interface. Renders dynamic visual attendance slots with progressive overdraft slots and unpaid status warnings.
 
 // Props:
 // - initialMembers: Member[]
@@ -10,8 +10,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Search, UserPlus, Trash2, X, ChevronRight, User, AlertCircle, Sparkles } from "lucide-react";
-import { addMember, deleteMember } from "@/app/actions-members";
+import { Search, UserPlus, X, ChevronRight, User, AlertCircle, Sparkles, AlertTriangle } from "lucide-react";
+import { addMember } from "@/app/actions-members";
 import { recordAttendance, undoAttendance } from "@/app/actions-pass";
 import { calculatePassHealth } from "@/lib/pass-engine";
 import Link from "next/link";
@@ -55,14 +55,6 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
     });
   };
 
-  const handleDelete = (id: string, name: string) => {
-    if (confirm(`Delete ${name}? All associated passes, receipts, and attendance records will be removed.`)) {
-      startTransition(async () => {
-        await deleteMember(id);
-      });
-    }
-  };
-
   const handleCircleTap = (pass: Pass, memberId: string, isUsed: boolean, isLastUsed: boolean, lastAttendanceId?: string) => {
     setError(null);
     startTransition(async () => {
@@ -100,7 +92,7 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
         <button
           onClick={() => setIsModalOpen(true)}
           className="shrink-0 flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-semibold rounded-xl text-sm transition-colors cursor-pointer shadow-sm"
-          title="Add Member"
+          title="Add Fighter"
         >
           <UserPlus className="w-4 h-4" />
           <span className="hidden sm:inline">Add</span>
@@ -146,7 +138,7 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                       <div className="text-sm font-bold text-neutral-100 truncate">
                         {m.last_name}, {m.first_name}
                       </div>
-                      <div className="text-[11px] text-neutral-400 truncate">{groupName ? groupName : "No active pass"}</div>
+                      <div className="text-[11px] text-neutral-400 truncate">{groupName ? groupName : "Unassigned"}</div>
                     </div>
                   </Link>
 
@@ -156,9 +148,11 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                         className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
                           health.status === "ACTIVE"
                             ? "bg-emerald-950 text-emerald-400 border-emerald-800"
-                            : health.status === "COMPLETED"
-                              ? "bg-blue-950 text-blue-400 border-blue-800"
-                              : "bg-red-950 text-red-400 border-red-800"
+                            : health.status === "UNPAID"
+                              ? "bg-rose-950 text-rose-400 border-rose-800"
+                              : health.status === "COMPLETED"
+                                ? "bg-blue-950 text-blue-400 border-blue-800"
+                                : "bg-red-950 text-red-400 border-red-800"
                         }`}
                       >
                         {health.status}
@@ -175,8 +169,19 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                   <div className="space-y-2 pt-1 border-t border-neutral-800/60">
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="text-neutral-400">
-                        Expires: <strong className="text-neutral-200">{health.effectiveExpiryDate}</strong>
+                        {activePass.total_entries === 0 ? (
+                          <span className="text-rose-400 font-semibold flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" /> Unpaid pass (rolls to next renewal)
+                          </span>
+                        ) : (
+                          <>
+                            Expires: <strong className="text-neutral-200">{health.effectiveExpiryDate}</strong>
+                          </>
+                        )}
                       </span>
+
+                      {health.overdraftCount > 0 && activePass.total_entries > 0 && <span className="text-[10px] text-rose-400 font-semibold">+{health.overdraftCount} overdraft</span>}
+
                       {health.isExtendedDueToCancellation && (
                         <span className="flex items-center gap-1 text-[10px] text-amber-400 font-semibold">
                           <Sparkles className="w-3 h-3" /> Extended
@@ -184,11 +189,24 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                       )}
                     </div>
 
-                    <div className="flex gap-2">
-                      {Array.from({ length: activePass.total_entries }).map((_, idx) => {
+                    <div className="flex flex-wrap gap-1.5">
+                      {Array.from({ length: health.displaySlotsCount }).map((_, idx) => {
                         const isUsed = idx < health.attendedCount;
                         const isLastUsed = idx === health.attendedCount - 1;
                         const lastAtt = passAttendances[passAttendances.length - 1];
+                        const isOverdraftSlot = activePass.total_entries === 0 || idx >= activePass.total_entries;
+
+                        let buttonClasses = "h-10 min-w-9 flex-1 rounded-xl flex items-center justify-center font-bold text-sm transition-all cursor-pointer ";
+
+                        if (isUsed && isOverdraftSlot) {
+                          buttonClasses += "bg-rose-600 text-white shadow-xs";
+                        } else if (isUsed) {
+                          buttonClasses += "bg-amber-500 text-neutral-950 shadow-xs";
+                        } else if (isOverdraftSlot) {
+                          buttonClasses += "bg-neutral-950 border border-rose-900/60 text-rose-500 hover:border-rose-500";
+                        } else {
+                          buttonClasses += "bg-neutral-950 border border-neutral-800 text-neutral-500 hover:border-amber-500/50";
+                        }
 
                         return (
                           <button
@@ -196,10 +214,18 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                             type="button"
                             disabled={isPending || (isUsed && !isLastUsed)}
                             onClick={() => handleCircleTap(activePass, m.id, isUsed, isLastUsed, lastAtt?.id)}
-                            className={`flex-1 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-all cursor-pointer ${
-                              isUsed ? "bg-amber-500 text-neutral-950 shadow-xs" : "bg-neutral-950 border border-neutral-800 text-neutral-500 hover:border-amber-500/50"
-                            }`}
-                            title={isUsed ? (isLastUsed ? "Tap to undo this entry" : "Used") : "Tap to mark attendance"}
+                            className={buttonClasses}
+                            title={
+                              isUsed
+                                ? isLastUsed
+                                  ? "Tap to undo this check-in"
+                                  : isOverdraftSlot
+                                    ? "Overdraft check-in (unpaid)"
+                                    : "Used standard entry"
+                                : isOverdraftSlot
+                                  ? "Tap to mark overdraft check-in"
+                                  : "Tap to mark attendance"
+                            }
                           >
                             {isUsed ? "X" : "○"}
                           </button>
@@ -209,7 +235,7 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                   </div>
                 ) : (
                   <div className="pt-2 border-t border-neutral-800/60 flex items-center justify-between">
-                    <span className="text-[11px] text-neutral-500">Need pass renewal</span>
+                    <span className="text-[11px] text-neutral-500">No pass initialized</span>
                     <Link href={`/members/${m.id}`} className="text-xs font-semibold text-amber-400 hover:text-amber-300">
                       Issue Pass →
                     </Link>
