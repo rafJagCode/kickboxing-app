@@ -12,7 +12,9 @@ export interface PassHealth {
   cancelledCountAffecting: number;
   attendedCount: number;
   remainingEntries: number;
-  status: "ACTIVE" | "COMPLETED" | "EXPIRED";
+  overdraftCount: number;
+  displaySlotsCount: number;
+  status: "ACTIVE" | "COMPLETED" | "EXPIRED" | "UNPAID";
 }
 
 function parseISODate(dateStr: string): Date {
@@ -27,24 +29,31 @@ function formatISODate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-export function calculatePassHealth(pass: Pass, attendances: Attendance[], sessions: CalendarSession[], currentDateStr: string = formatISODate(new Date())): PassHealth {
-  const attendedCount = attendances.length;
-  const remainingEntries = Math.max(0, pass.total_entries - attendedCount);
+function getBaselineExpiryDate(startDateStr: string): string {
+  const startDate = parseISODate(startDateStr);
+  const baseline = new Date(startDate);
+  baseline.setUTCMonth(baseline.getUTCMonth() + 1);
+  return formatISODate(baseline);
+}
 
-  const startDate = parseISODate(pass.start_date);
-  const baselineDate = new Date(startDate);
-  baselineDate.setUTCMonth(baselineDate.getUTCMonth() + 1);
-  let effectiveExpiryDate = formatISODate(baselineDate);
+function computeSessionExtension(pass: Pass, sessions: CalendarSession[], baselineExpiry: string): { finalExpiry: string; isExtended: boolean; cancelledCount: number } {
+  if (pass.total_entries === 0) {
+    return {
+      finalExpiry: baselineExpiry,
+      isExtended: false,
+      cancelledCount: 0,
+    };
+  }
 
   const relevantSessions = sessions.filter((s) => s.training_type_id === pass.training_type_id && s.date >= pass.start_date).sort((a, b) => a.date.localeCompare(b.date));
 
   let availableOpportunities = 0;
-  let cancelledCountAffecting = 0;
+  let cancelledCount = 0;
   let targetSessionDate: string | null = null;
 
   for (const session of relevantSessions) {
     if (session.status === "CANCELLED") {
-      cancelledCountAffecting += 1;
+      cancelledCount += 1;
       continue;
     }
 
@@ -55,27 +64,79 @@ export function calculatePassHealth(pass: Pass, attendances: Attendance[], sessi
     }
   }
 
-  let isExtendedDueToCancellation = false;
-
-  if (targetSessionDate && targetSessionDate > effectiveExpiryDate) {
-    effectiveExpiryDate = targetSessionDate;
-    isExtendedDueToCancellation = cancelledCountAffecting > 0;
-  }
-
-  let status: "ACTIVE" | "COMPLETED" | "EXPIRED" = "ACTIVE";
-
-  if (attendedCount >= pass.total_entries) {
-    status = "COMPLETED";
-  } else if (currentDateStr > effectiveExpiryDate) {
-    status = "EXPIRED";
+  if (targetSessionDate && targetSessionDate > baselineExpiry) {
+    return {
+      finalExpiry: targetSessionDate,
+      isExtended: cancelledCount > 0,
+      cancelledCount,
+    };
   }
 
   return {
-    effectiveExpiryDate,
-    isExtendedDueToCancellation,
-    cancelledCountAffecting,
+    finalExpiry: baselineExpiry,
+    isExtended: false,
+    cancelledCount,
+  };
+}
+
+function calculateSlotMetrics(
+  totalEntries: number,
+  attendedCount: number,
+): {
+  remainingEntries: number;
+  overdraftCount: number;
+  displaySlotsCount: number;
+} {
+  if (totalEntries === 0) {
+    return {
+      remainingEntries: 0,
+      overdraftCount: attendedCount,
+      displaySlotsCount: Math.max(4, attendedCount + 1),
+    };
+  }
+
+  const remainingEntries = Math.max(0, totalEntries - attendedCount);
+  const overdraftCount = Math.max(0, attendedCount - totalEntries);
+  const baseSlots = Math.max(4, totalEntries);
+  const displaySlotsCount = Math.max(baseSlots, attendedCount + 1);
+
+  return {
+    remainingEntries,
+    overdraftCount,
+    displaySlotsCount,
+  };
+}
+
+function resolvePassStatus(totalEntries: number, attendedCount: number, currentDateStr: string, effectiveExpiryDate: string): "ACTIVE" | "COMPLETED" | "EXPIRED" | "UNPAID" {
+  if (totalEntries === 0) {
+    return "UNPAID";
+  }
+  if (attendedCount >= totalEntries) {
+    return "COMPLETED";
+  }
+  if (currentDateStr > effectiveExpiryDate) {
+    return "EXPIRED";
+  }
+  return "ACTIVE";
+}
+
+export function calculatePassHealth(pass: Pass, attendances: Attendance[], sessions: CalendarSession[], currentDateStr: string = formatISODate(new Date())): PassHealth {
+  const attendedCount = attendances.length;
+  const baselineExpiry = getBaselineExpiryDate(pass.start_date);
+  const { finalExpiry, isExtended, cancelledCount } = computeSessionExtension(pass, sessions, baselineExpiry);
+
+  const { remainingEntries, overdraftCount, displaySlotsCount } = calculateSlotMetrics(pass.total_entries, attendedCount);
+
+  const status = resolvePassStatus(pass.total_entries, attendedCount, currentDateStr, finalExpiry);
+
+  return {
+    effectiveExpiryDate: finalExpiry,
+    isExtendedDueToCancellation: isExtended,
+    cancelledCountAffecting: cancelledCount,
     attendedCount,
     remainingEntries,
+    overdraftCount,
+    displaySlotsCount,
     status,
   };
 }
