@@ -107,6 +107,22 @@ export async function updatePass(formData: FormData) {
   revalidatePath(`/members/${memberId}`);
 }
 
+export async function deletePass(passId: string, memberId: string) {
+  if (!passId) {
+    throw new Error("Pass ID is required.");
+  }
+
+  const { error } = await supabaseAdmin.from("passes").delete().eq("id", passId);
+
+  if (error) {
+    throw new Error(`Failed to delete pass: ${error.message}`);
+  }
+
+  revalidatePath("/");
+  revalidatePath("/passes");
+  revalidatePath(`/members/${memberId}`);
+}
+
 export async function recordAttendance(passId: string, memberId: string) {
   const todayISO = new Date().toISOString().split("T")[0];
 
