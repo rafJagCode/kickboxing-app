@@ -1,18 +1,8 @@
-// Member profile pass management interface. Allows the coach to issue or renew passes, automatically handles overdraft rollovers, and presents visual attendance slots.
-
-// Props:
-// - memberId: string
-// - activePass: Pass | null
-// - pastPasses: Pass[]
-// - attendances: Attendance[]
-// - trainingTypes: TrainingType[]
-// - sessions: CalendarSession[]
-
 "use client";
 
 import { useState, useTransition } from "react";
-import { Ticket, Plus, AlertCircle, Calendar, RotateCcw, Sparkles, History, AlertTriangle } from "lucide-react";
-import { issuePass, recordAttendance, undoAttendance } from "@/app/actions-pass";
+import { Ticket, Plus, Pencil, X, AlertCircle, Calendar, RotateCcw, Sparkles, History, AlertTriangle } from "lucide-react";
+import { issuePass, updatePass, recordAttendance, undoAttendance } from "@/app/actions-pass";
 import { calculatePassHealth } from "@/lib/pass-engine";
 import type { Pass, Attendance, TrainingType, CalendarSession } from "@/types/database";
 
@@ -29,10 +19,15 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [isIssuingOpen, setIsIssuingOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
 
-  const [trainingTypeId, setTrainingTypeId] = useState(activePass?.training_type_id || trainingTypes[0]?.id || "");
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [totalEntries, setTotalEntries] = useState(4);
+  const [issueTrainingTypeId, setIssueTrainingTypeId] = useState(activePass?.training_type_id || trainingTypes[0]?.id || "");
+  const [issueStartDate, setIssueStartDate] = useState(new Date().toISOString().split("T")[0]);
+  const [issueTotalEntries, setIssueTotalEntries] = useState(4);
+
+  const [editTrainingTypeId, setEditTrainingTypeId] = useState(activePass?.training_type_id || trainingTypes[0]?.id || "");
+  const [editStartDate, setEditStartDate] = useState(activePass?.start_date || new Date().toISOString().split("T")[0]);
+  const [editTotalEntries, setEditTotalEntries] = useState(activePass?.total_entries ?? 4);
 
   const activePassAttendances = activePass ? attendances.filter((a) => a.pass_id === activePass.id) : [];
 
@@ -46,9 +41,9 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
 
     const formData = new FormData();
     formData.append("member_id", memberId);
-    formData.append("training_type_id", trainingTypeId);
-    formData.append("start_date", startDate);
-    formData.append("total_entries", String(totalEntries));
+    formData.append("training_type_id", issueTrainingTypeId);
+    formData.append("start_date", issueStartDate);
+    formData.append("total_entries", String(issueTotalEntries));
 
     startTransition(async () => {
       try {
@@ -56,6 +51,28 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
         setIsIssuingOpen(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to issue pass");
+      }
+    });
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activePass) return;
+    setError(null);
+
+    const formData = new FormData();
+    formData.append("pass_id", activePass.id);
+    formData.append("member_id", memberId);
+    formData.append("training_type_id", editTrainingTypeId);
+    formData.append("start_date", editStartDate);
+    formData.append("total_entries", String(editTotalEntries));
+
+    startTransition(async () => {
+      try {
+        await updatePass(formData);
+        setIsEditOpen(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to update pass");
       }
     });
   };
@@ -92,14 +109,33 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
           <Ticket className="w-4 h-4 text-amber-500" />
           <h2 className="text-sm font-bold text-neutral-100">Membership Pass</h2>
         </div>
-        <button
-          type="button"
-          onClick={() => setIsIssuingOpen(!isIssuingOpen)}
-          className="text-xs font-semibold px-2.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>{activePass && activePass.total_entries > 0 ? "Renew Pass" : "Activate / Renew Pass"}</span>
-        </button>
+        <div className="flex items-center gap-1.5">
+          {activePass && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditTrainingTypeId(activePass.training_type_id);
+                setEditStartDate(activePass.start_date);
+                setEditTotalEntries(activePass.total_entries);
+                setIsEditOpen(true);
+              }}
+              className="text-xs font-semibold px-2 py-1.5 bg-neutral-850 hover:bg-neutral-800 text-neutral-300 rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-neutral-800"
+              title="Edit Pass Settings"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              <span>Edit</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsIssuingOpen(!isIssuingOpen)}
+            className="text-xs font-semibold px-2.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>{activePass && activePass.total_entries > 0 ? "Renew Pass" : "Activate / Renew Pass"}</span>
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -116,8 +152,8 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
           <div>
             <label className="block text-[11px] font-medium text-neutral-400 mb-1">Training Group</label>
             <select
-              value={trainingTypeId}
-              onChange={(e) => setTrainingTypeId(e.target.value)}
+              value={issueTrainingTypeId}
+              onChange={(e) => setIssueTrainingTypeId(e.target.value)}
               className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50"
             >
               {trainingTypes.map((t) => (
@@ -133,8 +169,8 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
               <label className="block text-[11px] font-medium text-neutral-400 mb-1">Start Date</label>
               <input
                 type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                value={issueStartDate}
+                onChange={(e) => setIssueStartDate(e.target.value)}
                 required
                 className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none"
               />
@@ -143,10 +179,10 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
               <label className="block text-[11px] font-medium text-neutral-400 mb-1">Entries Allowed</label>
               <input
                 type="number"
-                min="1"
-                max="20"
-                value={totalEntries}
-                onChange={(e) => setTotalEntries(parseInt(e.target.value, 10))}
+                min="0"
+                max="50"
+                value={issueTotalEntries}
+                onChange={(e) => setIssueTotalEntries(parseInt(e.target.value, 10))}
                 required
                 className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none"
               />
@@ -168,6 +204,66 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
             </button>
             <button type="submit" disabled={isPending} className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-lg text-xs disabled:opacity-50">
               {isPending ? "Activating..." : "Activate Pass"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {isEditOpen && activePass && (
+        <form onSubmit={handleEditSubmit} className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-300">Edit Pass Parameters</h3>
+            <button type="button" onClick={() => setIsEditOpen(false)} className="text-neutral-400 hover:text-neutral-200">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-medium text-neutral-400 mb-1">Training Group</label>
+            <select
+              value={editTrainingTypeId}
+              onChange={(e) => setEditTrainingTypeId(e.target.value)}
+              className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            >
+              {trainingTypes.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[11px] font-medium text-neutral-400 mb-1">Start Date</label>
+              <input
+                type="date"
+                value={editStartDate}
+                onChange={(e) => setEditStartDate(e.target.value)}
+                required
+                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-neutral-400 mb-1">Total Entries</label>
+              <input
+                type="number"
+                min="0"
+                max="50"
+                value={editTotalEntries}
+                onChange={(e) => setEditTotalEntries(parseInt(e.target.value, 10))}
+                required
+                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-xs focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={() => setIsEditOpen(false)} className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-xs">
+              Cancel
+            </button>
+            <button type="submit" disabled={isPending} className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-lg text-xs disabled:opacity-50">
+              {isPending ? "Saving..." : "Update Pass"}
             </button>
           </div>
         </form>
