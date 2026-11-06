@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
-import TrainingTypeManager from "./TrainingTypeManager";
+import TrainingTypeManager from "@/components/TrainingTypeManager";
 import type { TrainingType } from "@/types/database";
 
 export default async function TrainingPage() {
