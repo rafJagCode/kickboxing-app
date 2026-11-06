@@ -155,21 +155,23 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
         </div>
       </div>
 
-      {/* 3. Training Group Tabs with "All Groups" as Default */}
+      {/* 3. Training Group Filter (Stacked Rows) */}
       <div className="space-y-2">
         <div className="flex items-center gap-1.5 text-xs text-neutral-400 px-1 font-semibold">
           <Layers className="w-3.5 h-3.5 text-neutral-500" />
           <span>Filter by Group</span>
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex flex-col gap-1.5">
           {/* ALL GROUPS BUTTON (Default) */}
           <button
+            type="button"
             onClick={() => setSelectedTypeId("ALL")}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
-              selectedTypeId === "ALL" ? "bg-amber-500 text-neutral-950 shadow-sm" : "bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-neutral-200"
+            className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+              selectedTypeId === "ALL" ? "bg-amber-500 text-neutral-950 shadow-sm" : "bg-neutral-900 border border-neutral-800 text-neutral-300 hover:bg-neutral-850"
             }`}
           >
-            All Groups
+            <span>All Groups</span>
+            {selectedTypeId === "ALL" && <span className="text-[10px] font-bold uppercase tracking-wider bg-neutral-950/20 px-2 py-0.5 rounded-md">Active</span>}
           </button>
 
           {/* Individual Group Buttons */}
@@ -178,12 +180,14 @@ export default function CalendarManager({ trainingTypes, initialSessions, year, 
             return (
               <button
                 key={t.id}
+                type="button"
                 onClick={() => setSelectedTypeId(t.id)}
-                className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
-                  isSelected ? "bg-amber-500 text-neutral-950 shadow-sm" : "bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-neutral-200"
+                className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+                  isSelected ? "bg-amber-500 text-neutral-950 shadow-sm" : "bg-neutral-900 border border-neutral-800 text-neutral-300 hover:bg-neutral-850"
                 }`}
               >
-                {t.name}
+                <span className="truncate">{t.name}</span>
+                {isSelected && <span className="text-[10px] font-bold uppercase tracking-wider bg-neutral-950/20 px-2 py-0.5 rounded-md">Active</span>}
               </button>
             );
           })}
