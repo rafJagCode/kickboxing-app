@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Layers, ChevronDown, ChevronUp, Calendar, AlertCircle, Pencil, X } from "lucide-react";
-import { recordAttendanceForSession, undoAttendance, updatePass } from "@/app/actions-pass";
+import { Layers, ChevronDown, ChevronUp, Calendar, AlertCircle, Pencil, Trash2, X } from "lucide-react";
+import { recordAttendanceForSession, undoAttendance, updatePass, deletePass } from "@/app/actions-pass";
 import { calculatePassHealth } from "@/lib/pass-engine";
 import { formatSessionDate } from "@/lib/date-utils";
 import Link from "next/link";
@@ -118,6 +118,22 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
         setError(err instanceof Error ? err.message : "Failed to update pass");
       }
     });
+  };
+
+  const handleDeletePass = (passId: string, memberId: string) => {
+    if (confirm("Permanently delete this pass and all its attendance records?")) {
+      setError(null);
+      startTransition(async () => {
+        try {
+          await deletePass(passId, memberId);
+          if (editingPass?.id === passId) {
+            setEditingPass(null);
+          }
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to delete pass");
+        }
+      });
+    }
   };
 
   return (
@@ -276,18 +292,28 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
                   return (
                     <tr key={pass.id} className="hover:bg-neutral-850/50 transition-colors">
                       <td className="sticky left-0 z-10 bg-neutral-900 px-3.5 py-2.5 border-r border-neutral-800">
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center justify-between gap-1.5">
                           <Link href={`/members/${pass.member_id}`} className="font-bold text-neutral-100 hover:text-amber-400 block truncate">
                             {memberName}
                           </Link>
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(pass)}
-                            className="p-1 text-neutral-500 hover:text-neutral-200 rounded hover:bg-neutral-800 transition-colors cursor-pointer shrink-0"
-                            title="Edit pass details"
-                          >
-                            <Pencil className="w-3 h-3" />
-                          </button>
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(pass)}
+                              className="p-1 text-neutral-500 hover:text-neutral-200 rounded hover:bg-neutral-800 transition-colors cursor-pointer"
+                              title="Edit pass details"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePass(pass.id, pass.member_id)}
+                              className="p-1 text-neutral-500 hover:text-red-400 rounded hover:bg-neutral-800 transition-colors cursor-pointer"
+                              title="Delete pass"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
                         <div className="text-[10px] text-neutral-400 truncate mt-0.5">{groupName}</div>
                       </td>
@@ -403,17 +429,28 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setEditingPass(null)} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">
-                  Cancel
-                </button>
+              <div className="flex justify-between items-center pt-2">
                 <button
-                  type="submit"
-                  disabled={isPending || !editTrainingTypeId || !editStartDate}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl text-xs font-semibold disabled:opacity-50"
+                  type="button"
+                  onClick={() => handleDeletePass(editingPass.id, editingPass.member_id)}
+                  className="px-3 py-2 bg-red-950/40 hover:bg-red-900/40 text-red-400 border border-red-900/60 rounded-xl text-xs font-semibold flex items-center gap-1 cursor-pointer"
                 >
-                  {isPending ? "Saving..." : "Update Pass"}
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
                 </button>
+
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setEditingPass(null)} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isPending || !editTrainingTypeId || !editStartDate}
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl text-xs font-semibold disabled:opacity-50"
+                  >
+                    {isPending ? "Saving..." : "Update Pass"}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
