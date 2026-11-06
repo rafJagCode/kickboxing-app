@@ -1,11 +1,11 @@
 /*
- * Description: Interactive pass timeline matrix component with date range bounds, status filtering, collapsible group selector, and session attendance toggles.
- * Config: Default statusFilter is 'ACTIVE'; date range defaults to 2 months prior up to the latest scheduled calendar date.
+ * Description: Pass matrix table updated with status filters ordered as All, Newest, Expired, and Unpaid. Newest filter isolates the single most recent pass per member.
+ * Config: Default statusFilter is 'ALL'; filters ordered as All, Newest, Expired, Unpaid.
  */
 "use client";
 
 import { useState, useTransition } from "react";
-import { Layers, ChevronDown, ChevronUp, Filter, Calendar, AlertCircle } from "lucide-react";
+import { Layers, ChevronDown, ChevronUp, Calendar, AlertCircle } from "lucide-react";
 import { recordAttendanceForSession, undoAttendance } from "@/app/actions-pass";
 import { calculatePassHealth } from "@/lib/pass-engine";
 import { formatSessionDate } from "@/lib/date-utils";
@@ -23,7 +23,7 @@ interface PassMatrixTableProps {
 }
 
 export default function PassMatrixTable({ members, passes, attendances, sessions, trainingTypes, initialFromDate, initialToDate }: PassMatrixTableProps) {
-  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "ALL" | "UNPAID" | "EXPIRED">("ACTIVE");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "NEWEST" | "EXPIRED" | "UNPAID">("ALL");
   const [selectedGroupId, setSelectedGroupId] = useState("ALL");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [fromDate, setFromDate] = useState(initialFromDate);
@@ -47,6 +47,14 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
     .filter((s) => selectedGroupId === "ALL" || s.training_type_id === selectedGroupId)
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  const newestPassMap = new Map<string, Pass>();
+  const sortedByCreated = [...passes].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  for (const p of sortedByCreated) {
+    if (!newestPassMap.has(p.member_id)) {
+      newestPassMap.set(p.member_id, p);
+    }
+  }
+
   const filteredPasses = passes.filter((p) => {
     if (selectedGroupId !== "ALL" && p.training_type_id !== selectedGroupId) {
       return false;
@@ -55,14 +63,14 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
     const passAttendances = attendances.filter((a) => a.pass_id === p.id);
     const health = calculatePassHealth(p, passAttendances, sessions);
 
-    if (statusFilter === "ACTIVE") {
-      return p.is_active && health.status === "ACTIVE";
-    }
-    if (statusFilter === "UNPAID") {
-      return health.status === "UNPAID";
+    if (statusFilter === "NEWEST") {
+      return newestPassMap.get(p.member_id)?.id === p.id;
     }
     if (statusFilter === "EXPIRED") {
       return health.status === "EXPIRED";
+    }
+    if (statusFilter === "UNPAID") {
+      return health.status === "UNPAID";
     }
     return true;
   });
@@ -165,7 +173,7 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
       </div>
 
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {(["ACTIVE", "ALL", "UNPAID", "EXPIRED"] as const).map((filterOption) => (
+        {(["ALL", "NEWEST", "EXPIRED", "UNPAID"] as const).map((filterOption) => (
           <button
             key={filterOption}
             type="button"
@@ -174,7 +182,7 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
               statusFilter === filterOption ? "bg-amber-500 text-neutral-950 shadow-xs" : "bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-neutral-200"
             }`}
           >
-            {filterOption === "ACTIVE" ? "Active Passes" : filterOption === "ALL" ? "All Passes" : filterOption === "UNPAID" ? "Unpaid" : "Expired"}
+            {filterOption === "ALL" ? "All" : filterOption === "NEWEST" ? "Newest" : filterOption === "EXPIRED" ? "Expired" : "Unpaid"}
           </button>
         ))}
       </div>
