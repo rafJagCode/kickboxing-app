@@ -255,13 +255,14 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
                 {visibleSessions.map((session) => (
                   <th
                     key={session.id}
-                    className={`px-2.5 py-2 font-medium min-w-20 text-center border-r border-neutral-800/80 ${
+                    className={`px-2 py-2 font-medium min-w-24 text-center border-r border-neutral-800/80 ${
                       session.status === "COMPLETED" ? "bg-emerald-950/20 text-emerald-300" : session.status === "CANCELLED" ? "bg-red-950/20 text-red-300" : "bg-neutral-900 text-neutral-300"
                     }`}
                   >
+                    <div className="text-[10px] text-amber-400/90 font-semibold truncate max-w-24 mx-auto mb-0.5">{getGroupName(session.training_type_id)}</div>
                     <div className="font-bold text-[11px] whitespace-nowrap">{formatSessionDate(session.date)}</div>
                     <div
-                      className={`text-[9px] uppercase font-bold tracking-wider px-1 py-0.2 rounded mt-0.5 inline-block ${
+                      className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded mt-0.5 inline-block ${
                         session.status === "COMPLETED"
                           ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
                           : session.status === "CANCELLED"
@@ -328,7 +329,10 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
                       </td>
 
                       {visibleSessions.map((session) => {
-                        const matchingAttendance = passAttendances.find((a) => a.date.split("T")[0] === session.date);
+                        const matchingAttendance = passAttendances.find((a) => {
+                          const dateOnly = a.date.includes("T") ? a.date.split("T")[0] : a.date;
+                          return dateOnly === session.date;
+                        });
                         const isAttended = Boolean(matchingAttendance);
                         const isInsidePassRange = session.date >= pass.start_date && (pass.total_entries === 0 || session.date <= health.effectiveExpiryDate);
 
@@ -343,22 +347,28 @@ export default function PassMatrixTable({ members, passes, attendances, sessions
                           } else {
                             cellBg = "bg-amber-950/20 border-x-2 border-amber-500/40 text-amber-300";
                           }
+                        } else if (isInsidePassRange) {
+                          cellBg = "bg-neutral-900/40";
                         }
 
                         return (
                           <td key={session.id} className={`p-1.5 text-center border-r border-neutral-800/60 ${cellBg}`}>
                             <button
                               type="button"
-                              disabled={isPending || !isPassGroupMatch}
+                              disabled={isPending}
                               onClick={() => handleCellToggle(pass, session.date, matchingAttendance?.id)}
                               className={`w-9 h-9 mx-auto rounded-xl flex items-center justify-center font-bold text-xs transition-all cursor-pointer ${
                                 isAttended
                                   ? "bg-amber-500 text-neutral-950 shadow-xs ring-1 ring-amber-400"
                                   : session.status === "CANCELLED"
-                                    ? "opacity-30 border border-neutral-800 text-neutral-600"
-                                    : "bg-neutral-900 border border-neutral-800 text-neutral-500 hover:border-amber-500/60"
+                                    ? "opacity-40 border border-neutral-800 text-neutral-500 hover:opacity-100 hover:border-red-500"
+                                    : session.status === "COMPLETED"
+                                      ? "bg-neutral-900 border border-emerald-800/80 text-emerald-400 hover:border-emerald-500 hover:bg-neutral-800"
+                                      : "bg-neutral-900 border border-neutral-800 text-neutral-500 hover:border-amber-500/60 hover:bg-neutral-800"
                               }`}
-                              title={isAttended ? `Attended on ${session.date} (Click to undo)` : `Not attended on ${session.date} (Click to mark)`}
+                              title={
+                                isAttended ? `Attended on ${session.date} (${getGroupName(session.training_type_id)}) - Click to undo` : `Mark attendance for ${session.date} (${getGroupName(session.training_type_id)})`
+                              }
                             >
                               {isAttended ? "X" : "○"}
                             </button>
