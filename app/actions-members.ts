@@ -1,23 +1,46 @@
+// Member management server actions. Automatically initializes a default unpaid membership pass (total_entries = 0) upon fighter registration to enable immediate check-ins.
+
+// Functions:
+// - addMember: Inserts a member and provisions an initial zero-entry pass.
+// - deleteMember: Removes a member and cascades to related records.
+
 "use server";
 
 import { supabaseAdmin } from "@/lib/supabase";
 import { revalidatePath } from "next/cache";
 
 export async function addMember(formData: FormData) {
-  const first_name = formData.get("first_name")?.toString().trim();
-  const last_name = formData.get("last_name")?.toString().trim();
+  const firstName = formData.get("first_name")?.toString().trim();
+  const lastName = formData.get("last_name")?.toString().trim();
 
-  if (!first_name || !last_name) {
+  if (!firstName || !lastName) {
     throw new Error("Both First Name and Last Name are required.");
   }
 
-  const { error } = await supabaseAdmin.from("members").insert({
-    first_name,
-    last_name,
-  });
+  const { data: newMember, error: memberError } = await supabaseAdmin
+    .from("members")
+    .insert({
+      first_name: firstName,
+      last_name: lastName,
+    })
+    .select()
+    .single();
 
-  if (error) {
-    throw new Error(error.message);
+  if (memberError || !newMember) {
+    throw new Error(`Failed to add member: ${memberError?.message}`);
+  }
+
+  const { data: defaultGroup } = await supabaseAdmin.from("training_types").select("id").order("name", { ascending: true }).limit(1).maybeSingle();
+
+  if (defaultGroup) {
+    const todayISO = new Date().toISOString().split("T")[0];
+    await supabaseAdmin.from("passes").insert({
+      member_id: newMember.id,
+      training_type_id: defaultGroup.id,
+      start_date: todayISO,
+      total_entries: 0,
+      is_active: true,
+    });
   }
 
   revalidatePath("/");
