@@ -1,4 +1,4 @@
-// Component rendered inside the member profile allowing the coach to issue a new pass, inspect active pass health, view remaining entry bubbles, and review historical passes with attendance timestamps.
+// Member profile pass management interface. Allows the coach to issue or renew passes, automatically handles overdraft rollovers, and presents visual attendance slots.
 
 // Props:
 // - memberId: string
@@ -11,7 +11,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Ticket, Plus, AlertCircle, Calendar, CheckCircle, RotateCcw, Sparkles, History } from "lucide-react";
+import { Ticket, Plus, AlertCircle, Calendar, RotateCcw, Sparkles, History, AlertTriangle } from "lucide-react";
 import { issuePass, recordAttendance, undoAttendance } from "@/app/actions-pass";
 import { calculatePassHealth } from "@/lib/pass-engine";
 import type { Pass, Attendance, TrainingType, CalendarSession } from "@/types/database";
@@ -30,7 +30,7 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
   const [error, setError] = useState<string | null>(null);
   const [isIssuingOpen, setIsIssuingOpen] = useState(false);
 
-  const [trainingTypeId, setTrainingTypeId] = useState(trainingTypes[0]?.id || "");
+  const [trainingTypeId, setTrainingTypeId] = useState(activePass?.training_type_id || trainingTypes[0]?.id || "");
   const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
   const [totalEntries, setTotalEntries] = useState(4);
 
@@ -98,7 +98,7 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
           className="text-xs font-semibold px-2.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
-          <span>{activePass ? "Renew Pass" : "Issue Pass"}</span>
+          <span>{activePass && activePass.total_entries > 0 ? "Renew Pass" : "Activate / Renew Pass"}</span>
         </button>
       </div>
 
@@ -111,7 +111,7 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
 
       {isIssuingOpen && (
         <form onSubmit={handleIssueSubmit} className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-300">{activePass ? "Renew Active Pass" : "Issue New Pass"}</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-300">{activePass ? "Renew / Activate Pass" : "Issue New Pass"}</h3>
 
           <div>
             <label className="block text-[11px] font-medium text-neutral-400 mb-1">Training Group</label>
@@ -153,6 +153,15 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
             </div>
           </div>
 
+          {health && health.overdraftCount > 0 && (
+            <div className="p-2.5 bg-rose-950/40 border border-rose-900/60 rounded-xl text-xs text-rose-300 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>
+                {health.overdraftCount} overdraft check-in{health.overdraftCount > 1 ? "s" : ""} will be rolled over into this new pass automatically.
+              </span>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={() => setIsIssuingOpen(false)} className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-xs">
               Cancel
@@ -171,13 +180,19 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
               <span className="text-xs font-bold text-neutral-100">{activeGroupName}</span>
               <div className="text-[11px] text-neutral-400 flex items-center gap-1.5 mt-0.5">
                 <Calendar className="w-3 h-3 text-neutral-500" />
-                <span>Valid until: {health.effectiveExpiryDate}</span>
+                <span>{activePass.total_entries === 0 ? "Unpaid Pass" : `Valid until: ${health.effectiveExpiryDate}`}</span>
               </div>
             </div>
 
             <span
               className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                health.status === "ACTIVE" ? "bg-emerald-950 text-emerald-400 border-emerald-800" : health.status === "COMPLETED" ? "bg-blue-950 text-blue-400 border-blue-800" : "bg-red-950 text-red-400 border-red-800"
+                health.status === "ACTIVE"
+                  ? "bg-emerald-950 text-emerald-400 border-emerald-800"
+                  : health.status === "UNPAID"
+                    ? "bg-rose-950 text-rose-400 border-rose-800"
+                    : health.status === "COMPLETED"
+                      ? "bg-blue-950 text-blue-400 border-blue-800"
+                      : "bg-red-950 text-red-400 border-red-800"
               }`}
             >
               {health.status}
@@ -194,34 +209,54 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
             </div>
           )}
 
+          {activePass.total_entries === 0 && (
+            <div className="flex items-center gap-1.5 text-[11px] text-rose-400 bg-rose-950/40 border border-rose-900/50 p-2.5 rounded-xl">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span>Zero paid entries. Check-ins made now will be tracked as overdraft entries and migrated when the pass is paid.</span>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <div className="flex justify-between text-[11px] text-neutral-400">
               <span>Attendance Entries</span>
               <span>
-                {health.attendedCount} of {activePass.total_entries} used
+                {health.attendedCount} recorded ({health.overdraftCount} overdraft)
               </span>
             </div>
 
-            <div className="flex gap-2">
-              {Array.from({ length: activePass.total_entries }).map((_, idx) => {
+            <div className="flex flex-wrap gap-1.5">
+              {Array.from({ length: health.displaySlotsCount }).map((_, idx) => {
                 const isUsed = idx < health.attendedCount;
+                const isLastUsed = idx === health.attendedCount - 1;
+                const isOverdraftSlot = activePass.total_entries === 0 || idx >= activePass.total_entries;
+
+                let buttonClasses = "h-11 min-w-10 flex-1 rounded-xl flex items-center justify-center font-bold text-sm transition-all cursor-pointer ";
+
+                if (isUsed && isOverdraftSlot) {
+                  buttonClasses += "bg-rose-600 text-white shadow-xs";
+                } else if (isUsed) {
+                  buttonClasses += "bg-amber-500 text-neutral-950 shadow-xs";
+                } else if (isOverdraftSlot) {
+                  buttonClasses += "bg-neutral-950 border border-rose-900/60 text-rose-500 hover:border-rose-500";
+                } else {
+                  buttonClasses += "bg-neutral-950 border border-neutral-800 text-neutral-600 hover:border-amber-500/50";
+                }
+
                 return (
                   <button
                     key={idx}
                     type="button"
-                    disabled={isPending || (isUsed && idx !== health.attendedCount - 1)}
+                    disabled={isPending || (isUsed && !isLastUsed)}
                     onClick={() => {
                       if (!isUsed) {
                         handleQuickCheckIn();
-                      } else if (idx === health.attendedCount - 1) {
+                      } else if (isLastUsed) {
                         const lastAtt = activePassAttendances[activePassAttendances.length - 1];
                         if (lastAtt) handleUndo(lastAtt.id);
                       }
                     }}
-                    className={`flex-1 h-11 rounded-xl flex items-center justify-center font-bold text-sm transition-all cursor-pointer ${
-                      isUsed ? "bg-amber-500 text-neutral-950 shadow-xs" : "bg-neutral-950 border border-neutral-800 text-neutral-600 hover:border-amber-500/50"
-                    }`}
-                    title={isUsed ? "Tap last used circle to undo" : "Tap to mark attendance"}
+                    className={buttonClasses}
+                    title={isUsed ? (isLastUsed ? "Tap to undo check-in" : isOverdraftSlot ? "Overdraft check-in" : "Standard check-in") : isOverdraftSlot ? "Tap to mark overdraft check-in" : "Tap to mark attendance"}
                   >
                     {isUsed ? "X" : "○"}
                   </button>
@@ -236,16 +271,27 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
               {activePassAttendances.length === 0 ? (
                 <p className="text-[11px] text-neutral-600">No entries recorded yet.</p>
               ) : (
-                activePassAttendances.map((att, idx) => (
-                  <div key={att.id} className="flex items-center justify-between text-[11px] text-neutral-300 bg-neutral-950 px-2.5 py-1.5 rounded-lg border border-neutral-800/60">
-                    <span>
-                      Entry #{idx + 1}: {new Date(att.date).toLocaleString()}
-                    </span>
-                    <button type="button" onClick={() => handleUndo(att.id)} className="text-neutral-500 hover:text-red-400 p-0.5" title="Undo entry">
-                      <RotateCcw className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))
+                activePassAttendances.map((att, idx) => {
+                  const isOverdraftEntry = activePass.total_entries === 0 || idx >= activePass.total_entries;
+                  return (
+                    <div
+                      key={att.id}
+                      className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-lg border ${
+                        isOverdraftEntry ? "bg-rose-950/20 border-rose-900/60 text-rose-300" : "bg-neutral-950 border-neutral-800/60 text-neutral-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span>
+                          Entry #{idx + 1}: {new Date(att.date).toLocaleString()}
+                        </span>
+                        {isOverdraftEntry && <span className="text-[9px] uppercase font-mono px-1.5 py-0.2 bg-rose-950 text-rose-400 border border-rose-800 rounded">Overdraft</span>}
+                      </div>
+                      <button type="button" onClick={() => handleUndo(att.id)} className="text-neutral-500 hover:text-red-400 p-0.5 shrink-0" title="Undo entry">
+                        <RotateCcw className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
@@ -253,8 +299,8 @@ export default function PassManager({ memberId, activePass, pastPasses, attendan
       ) : (
         <div className="p-6 text-center bg-neutral-900/40 border border-neutral-900 rounded-2xl">
           <Ticket className="w-8 h-8 text-neutral-600 mx-auto mb-2" />
-          <p className="text-xs text-neutral-400 font-medium">No active pass</p>
-          <p className="text-[11px] text-neutral-600 mt-0.5">Tap &quot;Issue Pass&quot; to issue a 4-entry cycle</p>
+          <p className="text-xs text-neutral-400 font-medium">No pass assigned</p>
+          <p className="text-[11px] text-neutral-600 mt-0.5">Click &quot;Issue Pass&quot; above to initialize an active pass</p>
         </div>
       )}
 
