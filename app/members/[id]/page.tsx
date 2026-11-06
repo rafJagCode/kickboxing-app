@@ -1,6 +1,6 @@
 /*
- * Description: Member detail profile page updated to render editable MemberHeader component alongside PassManager and ReceiptManager.
- * Config: Dynamic route segment parameterized by member id.
+ * Description: Profile page supplying available training groups and active membership pass group to MemberHeader.
+ * Config: Resolves active pass training group id from passes table.
  */
 import { supabaseAdmin } from "@/lib/supabase";
 import { notFound } from "next/navigation";
@@ -42,7 +42,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
         </Link>
       </div>
 
-      <MemberHeader member={typedMember} />
+      <MemberHeader member={typedMember} trainingTypes={(trainingTypes as TrainingType[]) || []} currentTrainingTypeId={activePass?.training_type_id} />
 
       <div className="space-y-6">
         <PassManager
