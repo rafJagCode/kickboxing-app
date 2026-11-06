@@ -1,10 +1,13 @@
-// Member detail page integrating PassManager and ReceiptManager. Provides the coach with the complete profile, full pass issuance and history, attendance log, and payment receipt verifications.
-
+/*
+ * Description: Member detail profile page updated to render editable MemberHeader component alongside PassManager and ReceiptManager.
+ * Config: Dynamic route segment parameterized by member id.
+ */
 import { supabaseAdmin } from "@/lib/supabase";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import MemberHeader from "@/components/MemberHeader";
 import PassManager from "@/components/PassManager";
 import ReceiptManager from "@/components/ReceiptManager";
 import type { Member, Pass, Attendance, CalendarSession, TrainingType, PaymentProof } from "@/types/database";
@@ -39,18 +42,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
         </Link>
       </div>
 
-      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center gap-3.5 mb-5 shadow-sm">
-        <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-base shrink-0">
-          {typedMember.first_name[0]}
-          {typedMember.last_name[0]}
-        </div>
-        <div className="truncate">
-          <h1 className="text-lg font-bold text-neutral-100 truncate">
-            {typedMember.first_name} {typedMember.last_name}
-          </h1>
-          <p className="text-xs text-neutral-500">Member since {new Date(typedMember.created_at).toLocaleDateString()}</p>
-        </div>
-      </div>
+      <MemberHeader member={typedMember} />
 
       <div className="space-y-6">
         <PassManager
