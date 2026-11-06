@@ -1,17 +1,12 @@
-// Directory search and 3-second mat check-in interface. Renders dynamic visual attendance slots with progressive overdraft slots and unpaid status warnings.
-
-// Props:
-// - initialMembers: Member[]
-// - passes: Pass[]
-// - attendances: Attendance[]
-// - sessions: CalendarSession[]
-// - trainingTypes: TrainingType[]
-
+/*
+ * Description: Member directory and check-in manager updated to include pencil action button and edit dialog directly on directory cards.
+ * Config: Manages active edit state for rapid updates on mat without navigating away.
+ */
 "use client";
 
 import { useState, useTransition } from "react";
-import { Search, UserPlus, X, ChevronRight, User, AlertCircle, Sparkles, AlertTriangle } from "lucide-react";
-import { addMember } from "@/app/actions-members";
+import { Search, UserPlus, X, ChevronRight, User, AlertCircle, Sparkles, AlertTriangle, Pencil, Trash2 } from "lucide-react";
+import { addMember, updateMember, deleteMember } from "@/app/actions-members";
 import { recordAttendance, undoAttendance } from "@/app/actions-pass";
 import { calculatePassHealth } from "@/lib/pass-engine";
 import Link from "next/link";
@@ -27,7 +22,10 @@ interface MemberManagerProps {
 
 export default function MemberManager({ initialMembers, passes, attendances, sessions, trainingTypes }: MemberManagerProps) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -48,11 +46,38 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
       try {
         await addMember(formData);
         form.reset();
-        setIsModalOpen(false);
+        setIsAddModalOpen(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to add member");
       }
     });
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingMember) return;
+    setError(null);
+
+    const formData = new FormData();
+    formData.append("first_name", editFirstName);
+    formData.append("last_name", editLastName);
+
+    startTransition(async () => {
+      try {
+        await updateMember(editingMember.id, formData);
+        setEditingMember(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to update member");
+      }
+    });
+  };
+
+  const handleDelete = (id: string, name: string) => {
+    if (confirm(`Delete ${name}? All associated passes, receipts, and attendance records will be removed.`)) {
+      startTransition(async () => {
+        await deleteMember(id);
+      });
+    }
   };
 
   const handleCircleTap = (pass: Pass, memberId: string, isUsed: boolean, isLastUsed: boolean, lastAttendanceId?: string) => {
@@ -90,7 +115,7 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
         </div>
 
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => setIsAddModalOpen(true)}
           className="shrink-0 flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-semibold rounded-xl text-sm transition-colors cursor-pointer shadow-sm"
           title="Add Fighter"
         >
@@ -159,7 +184,29 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
                       </span>
                     )}
 
-                    <Link href={`/members/${m.id}`} className="p-1.5 text-neutral-400 hover:text-neutral-100 rounded-lg hover:bg-neutral-800 transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingMember(m);
+                        setEditFirstName(m.first_name);
+                        setEditLastName(m.last_name);
+                      }}
+                      className="p-1.5 text-neutral-500 hover:text-neutral-200 rounded-lg hover:bg-neutral-800 transition-colors"
+                      title="Edit Name"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(m.id, `${m.first_name} ${m.last_name}`)}
+                      className="p-1.5 text-neutral-500 hover:text-red-400 rounded-lg hover:bg-neutral-800 transition-colors"
+                      title="Delete Member"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+
+                    <Link href={`/members/${m.id}`} className="p-1 text-neutral-400 hover:text-neutral-100 rounded-lg hover:bg-neutral-800 transition-colors">
                       <ChevronRight className="w-4 h-4" />
                     </Link>
                   </div>
@@ -247,12 +294,12 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
         )}
       </div>
 
-      {isModalOpen && (
+      {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
               <h3 className="font-bold text-base text-neutral-100">Add New Fighter</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-neutral-400 hover:text-neutral-200">
+              <button onClick={() => setIsAddModalOpen(false)} className="text-neutral-400 hover:text-neutral-200">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -282,11 +329,62 @@ export default function MemberManager({ initialMembers, passes, attendances, ses
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">
+                <button type="button" onClick={() => setIsAddModalOpen(false)} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">
                   Cancel
                 </button>
                 <button type="submit" disabled={isPending} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl text-xs font-semibold disabled:opacity-50">
                   {isPending ? "Saving..." : "Save Fighter"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingMember && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+              <h3 className="font-bold text-base text-neutral-100">Edit Fighter Name</h3>
+              <button type="button" onClick={() => setEditingMember(null)} className="text-neutral-400 hover:text-neutral-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">First Name</label>
+                <input
+                  type="text"
+                  value={editFirstName}
+                  onChange={(e) => setEditFirstName(e.target.value)}
+                  required
+                  autoFocus
+                  className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">Last Name</label>
+                <input
+                  type="text"
+                  value={editLastName}
+                  onChange={(e) => setEditLastName(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setEditingMember(null)} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending || !editFirstName.trim() || !editLastName.trim()}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl text-xs font-semibold disabled:opacity-50"
+                >
+                  {isPending ? "Saving..." : "Update Details"}
                 </button>
               </div>
             </form>
