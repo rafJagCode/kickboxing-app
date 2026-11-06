@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Plus, Trash2, Dumbbell } from "lucide-react";
-import { addTrainingType, deleteTrainingType } from "./actions";
+import { addTrainingType, deleteTrainingType } from "@/app/training/actions";
 import type { TrainingType } from "@/types/database";
 
 export default function TrainingTypeManager({ initialGroups }: { initialGroups: TrainingType[] }) {
